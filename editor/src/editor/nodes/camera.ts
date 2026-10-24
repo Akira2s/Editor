@@ -14,6 +14,9 @@ const DEFAULT_KEYS = {
 };
 
 export class EditorCamera extends FreeCamera {
+	private static readonly _minSpeed: number = 0.01;
+	private static readonly _maxSpeed: number = 1000;
+
 	private _savedSpeed: number | null = null;
 	private _panInput: EditorFreeCameraPanInput;
 	private _unityInput: EditorFreeCameraUnityInput;
@@ -43,6 +46,7 @@ export class EditorCamera extends FreeCamera {
 
 		this._unityInput = new EditorFreeCameraUnityInput();
 		this._unityInput.onFlyingChanged = (flying) => this._setFlyKeysActive(!this._unityControls || flying);
+		this._unityInput.onFlySpeedChanged = (factor) => this._scaleFlySpeed(factor);
 
 		window.addEventListener(
 			"keydown",
@@ -78,6 +82,19 @@ export class EditorCamera extends FreeCamera {
 				}
 			})
 		);
+	}
+
+	/**
+	 * Scales the speed of the camera, used by the mouse wheel while flying. The speed boost of the Shift key is kept: what
+	 * the key releases back is scaled too.
+	 */
+	private _scaleFlySpeed(factor: number): void {
+		const scale = (speed: number): number => Math.min(EditorCamera._maxSpeed, Math.max(EditorCamera._minSpeed, speed * factor));
+
+		this.speed = scale(this.speed);
+		if (this._savedSpeed !== null) {
+			this._savedSpeed = scale(this._savedSpeed);
+		}
 	}
 
 	/**

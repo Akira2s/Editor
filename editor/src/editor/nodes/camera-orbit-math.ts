@@ -58,3 +58,14 @@ export function orbitAround(position: IOrbitVector, pivot: IOrbitVector, yaw: nu
 export function dollyDistance(distance: number, amount: number, minDistance: number = 0.05): number {
 	return Math.max(minDistance, distance * Math.exp(-amount));
 }
+
+/**
+ * Computes the factor to apply to the fly speed of the camera for a mouse wheel movement: each wheel notch (100 units
+ * of delta) changes the speed by 10%, scrolling up speeds the camera up.
+ * @param deltaY defines the delta of the wheel event.
+ * @param deltaMode defines the unit of the delta (0: pixels, 1: lines, 2: pages).
+ */
+export function flySpeedFactor(deltaY: number, deltaMode: number = 0): number {
+	const pixels = deltaMode === 1 ? deltaY * 33 : deltaMode === 2 ? deltaY * 100 : deltaY;
+	return Math.pow(1.1, -pixels / 100);
+}

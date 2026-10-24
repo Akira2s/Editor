@@ -1,6 +1,6 @@
 import { FreeCamera, ICameraInput, Vector3 } from "babylonjs";
 
-import { dollyDistance, orbitAround } from "./camera-orbit-math";
+import { dollyDistance, flySpeedFactor, orbitAround } from "./camera-orbit-math";
 
 type UnityCameraMode = "none" | "orbit" | "dolly" | "fly";
 
@@ -9,7 +9,8 @@ type UnityCameraMode = "none" | "orbit" | "dolly" | "fly";
  * - Alt + Left Mouse Button: orbit around the pivot.
  * - Alt + Right Mouse Button: dolly (zoom) toward the pivot.
  * - Right Mouse Button: fly mode (the mouse looks around, the camera's movement keys are active).
- * The middle mouse button pan and the mouse wheel are handled by the other editor camera inputs.
+ * - Mouse wheel while flying: changes the fly speed instead of zooming.
+ * The middle mouse button pan and the mouse wheel (outside of the fly mode) are handled by the other editor camera inputs.
  */
 export class EditorFreeCameraUnityInput implements ICameraInput<FreeCamera> {
 	public camera!: FreeCamera;
@@ -27,6 +28,11 @@ export class EditorFreeCameraUnityInput implements ICameraInput<FreeCamera> {
 	 * Called when the fly mode starts or stops.
 	 */
 	public onFlyingChanged: ((flying: boolean) => void) | null = null;
+
+	/**
+	 * Called with the factor to apply to the fly speed when the mouse wheel moves while flying.
+	 */
+	public onFlySpeedChanged: ((factor: number) => void) | null = null;
 
 	private _canvas: HTMLCanvasElement | null = null;
 
@@ -49,6 +55,7 @@ export class EditorFreeCameraUnityInput implements ICameraInput<FreeCamera> {
 	private _pointerMoveListener: ((ev: PointerEvent) => void) | null = null;
 	private _pointerUpListener: ((ev: PointerEvent) => void) | null = null;
 	private _contextMenuListener: ((ev: MouseEvent) => void) | null = null;
+	private _wheelListener: ((ev: WheelEvent) => void) | null = null;
 	private _blurListener: (() => void) | null = null;
 
 	private static readonly _dragThresholdInPixels: number = 4;
@@ -96,6 +103,22 @@ export class EditorFreeCameraUnityInput implements ICameraInput<FreeCamera> {
 			true
 		);
 
+		// The wheel changes the fly speed instead of zooming: it must not reach the wheel input of the camera.
+		document.addEventListener(
+			"wheel",
+			(this._wheelListener = (ev) => {
+				if (this._mode !== "fly") {
+					return;
+				}
+
+				ev.preventDefault();
+				ev.stopPropagation();
+
+				this.onFlySpeedChanged?.(flySpeedFactor(ev.deltaY, ev.deltaMode));
+			}),
+			{ capture: true, passive: false }
+		);
+
 		window.addEventListener("blur", (this._blurListener = () => this._end()));
 	}
 
@@ -118,6 +141,10 @@ export class EditorFreeCameraUnityInput implements ICameraInput<FreeCamera> {
 		if (this._contextMenuListener) {
 			document.removeEventListener("contextmenu", this._contextMenuListener, true);
 			this._contextMenuListener = null;
+		}
+		if (this._wheelListener) {
+			document.removeEventListener("wheel", this._wheelListener, true);
+			this._wheelListener = null;
 		}
 		if (this._blurListener) {
 			window.removeEventListener("blur", this._blurListener);

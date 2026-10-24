@@ -1,6 +1,6 @@
 import { describe, test, expect } from "vitest";
 
-import { orbitAround, dollyDistance, orbitMaxElevation } from "../../../src/editor/nodes/camera-orbit-math";
+import { orbitAround, dollyDistance, flySpeedFactor, orbitMaxElevation } from "../../../src/editor/nodes/camera-orbit-math";
 
 const distance = (a: { x: number; y: number; z: number }, b: { x: number; y: number; z: number }) => Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z);
 
@@ -70,5 +70,22 @@ describe("editor/nodes/camera-orbit-math", () => {
 		test("is proportional to the current distance", () => {
 			expect(dollyDistance(100, 0.3) / 100).toBeCloseTo(dollyDistance(1, 0.3), 12);
 		});
+	});
+});
+
+describe("flySpeedFactor", () => {
+	test("a wheel notch changes the speed by 10%, scrolling up speeds up", () => {
+		expect(flySpeedFactor(-100)).toBeCloseTo(1.1, 6);
+		expect(flySpeedFactor(100)).toBeCloseTo(1 / 1.1, 6);
+		expect(flySpeedFactor(0)).toBe(1);
+	});
+
+	test("opposite movements cancel out", () => {
+		expect(flySpeedFactor(-250) * flySpeedFactor(250)).toBeCloseTo(1, 10);
+	});
+
+	test("line and page deltas are scaled", () => {
+		expect(flySpeedFactor(-3, 1)).toBeCloseTo(flySpeedFactor(-99), 6);
+		expect(flySpeedFactor(-1, 2)).toBeCloseTo(flySpeedFactor(-100), 6);
 	});
 });

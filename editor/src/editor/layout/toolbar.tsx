@@ -207,7 +207,7 @@ export class EditorToolbar extends Component<IEditorToolbarProps> {
 								Rotation <MenubarShortcut>CTRL+R</MenubarShortcut>
 							</MenubarItem>
 							<MenubarItem onClick={() => this.props.editor.layout.preview.setActiveGizmo("scaling")}>
-								Scaling <MenubarShortcut>CTRL+W</MenubarShortcut>
+								Scaling <MenubarShortcut>CTRL+D</MenubarShortcut>
 							</MenubarItem>
 
 							<MenubarSeparator />

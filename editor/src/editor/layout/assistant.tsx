@@ -752,11 +752,12 @@ export class EditorAssistant extends Component<IEditorAssistantProps, IEditorAss
 		}
 
 		// Agents turn on the mouse reporting of the terminal, which then sends the drags to the agent and selects nothing:
-		// force the selection of the terminal (what the Shift key does) so dragging always selects text.
+		// force the selection of the terminal (what the Shift key does) so dragging always selects text. Without mouse
+		// reporting Shift extends the current selection instead, so the terminal selects by itself.
 		this._terminalContainer.addEventListener(
 			"mousedown",
 			(ev) => {
-				if (ev.button === 0 && !ev.shiftKey) {
+				if (ev.button === 0 && !ev.shiftKey && terminal.modes.mouseTrackingMode !== "none") {
 					Object.defineProperty(ev, "shiftKey", { value: true });
 				}
 			},

@@ -260,9 +260,14 @@ export async function removeAntigravityPlugin(sessionId: string): Promise<void> 
 /**
  * Returns the arguments Antigravity CLI is started with.
  * @param resume defines wether or not to continue the last conversation of the project instead of starting a new one.
+ * @param conversationId defines the identifier of the conversation to resume, the last one of the project is continued without it.
  */
-export function getAntigravityArguments(resume: boolean): string[] {
-	return resume ? ["--continue"] : [];
+export function getAntigravityArguments(resume: boolean, conversationId: string | null = null): string[] {
+	if (!resume) {
+		return [];
+	}
+
+	return conversationId ? ["--conversation", conversationId] : ["--continue"];
 }
 
 /**

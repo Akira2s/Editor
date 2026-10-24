@@ -16,6 +16,12 @@ export class EditorFreeCameraPanInput implements ICameraInput<FreeCamera> {
 	private _detachedMouseInput: any | null = null;
 
 	public panSensitivityMultiplier: number = 10;
+
+	/**
+	 * Defines whether or not Alt + Left Mouse Button pans the camera. Disabled when Alt + Left Mouse Button orbits instead.
+	 */
+	public altLeftPans: boolean = true;
+
 	private static readonly _panMinDistance: number = 2;
 	private static readonly _panMaxDistance: number = 200;
 	private static readonly _panMaxPixelDelta: number = 40;
@@ -57,7 +63,7 @@ export class EditorFreeCameraPanInput implements ICameraInput<FreeCamera> {
 					return;
 				}
 
-				const isAltLeft = ev.button === 0 && ev.altKey;
+				const isAltLeft = this.altLeftPans && ev.button === 0 && ev.altKey;
 				const isMMB = ev.button === 1; // allow middle mouse to pan as well
 				if (!isAltLeft && !isMMB) {
 					return;

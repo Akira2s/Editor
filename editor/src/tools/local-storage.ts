@@ -1,3 +1,5 @@
+import { IAssistantThread, parseAssistantThreads } from "../editor/layout/assistant/threads";
+
 import { ProjectType, projectsKey } from "./project";
 
 /**
@@ -158,6 +160,31 @@ export function trySetAssistantExecutablePathInLocalStorage(agent: string, path:
 		} else {
 			localStorage.removeItem(`babylonjs-editor-assistant-${agent}-path`);
 		}
+	} catch (e) {
+		// Catch silently.
+	}
+}
+
+/**
+ * Returns the threads of the AI assistant of the given project.
+ * @param projectPath defines the absolute path of the project file.
+ */
+export function tryGetAssistantThreadsFromLocalStorage(projectPath: string): IAssistantThread[] {
+	try {
+		return parseAssistantThreads(JSON.parse(localStorage.getItem(`babylonjs-editor-assistant-threads:${projectPath}`) || "[]"));
+	} catch (e) {
+		return [];
+	}
+}
+
+/**
+ * Sets the threads of the AI assistant of the given project in the local storage.
+ * @param projectPath defines the absolute path of the project file.
+ * @param threads defines the threads to remember.
+ */
+export function trySetAssistantThreadsInLocalStorage(projectPath: string, threads: IAssistantThread[]): void {
+	try {
+		localStorage.setItem(`babylonjs-editor-assistant-threads:${projectPath}`, JSON.stringify(threads));
 	} catch (e) {
 		// Catch silently.
 	}

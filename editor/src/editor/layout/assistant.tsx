@@ -33,8 +33,10 @@ import { execNodePty, NodePtyInstance } from "../../tools/node-pty";
 import {
 	tryGetAssistantAgentFromLocalStorage,
 	tryGetAssistantExecutablePathFromLocalStorage,
+	tryGetAssistantThreadsFromLocalStorage,
 	trySetAssistantAgentInLocalStorage,
 	trySetAssistantExecutablePathInLocalStorage,
+	trySetAssistantThreadsInLocalStorage,
 } from "../../tools/local-storage";
 
 import { removeAgentData } from "../../project/agent-data";
@@ -61,6 +63,16 @@ import {
 } from "./assistant/antigravity";
 import { installAssistantSkillsInProject } from "./assistant/skills";
 import { getAssistantTerminalClipboardAction } from "./assistant/terminal-clipboard";
+import { claudeConversationExists, findNewAgentConversation } from "./assistant/conversations";
+import {
+	deleteAssistantThread,
+	findResumableAssistantThread,
+	getDefaultAssistantThreadName,
+	IAssistantThread,
+	renameAssistantThread,
+	updateAssistantThread,
+} from "./assistant/threads";
+import { AssistantThreadsMenu } from "./assistant/threads-menu";
 import {
 	getAssistantMcpServerScriptPath,
 	getAssistantPluginDirectory,
@@ -141,6 +153,8 @@ export interface IEditorAssistantState {
 	activity: string | null;
 	dragOver: boolean;
 	welcome: boolean;
+	threads: IAssistantThread[];
+	activeThreadId: string | null;
 }
 
 export class EditorAssistant extends Component<IEditorAssistantProps, IEditorAssistantState> {
@@ -163,6 +177,10 @@ export class EditorAssistant extends Component<IEditorAssistantProps, IEditorAss
 	// The end of the output of Antigravity CLI, without its escape sequences, where it asks the user to allow a tool.
 	private _antigravityOutput: string = "";
 
+	// The threads of the project, the source of truth of the state (which is updated asynchronously).
+	private _threads: IAssistantThread[] = [];
+	private _conversationPoll: ReturnType<typeof setInterval> | null = null;
+
 	// Mirrors the state of the editor, which is updated asynchronously, for the events that follow each other.
 	private _workState: EditorAssistantWorkState = "idle";
 	// A new notification each time the assistant waits: sonner drops a notification created again with the id of one it is closing.
@@ -184,6 +202,8 @@ export class EditorAssistant extends Component<IEditorAssistantProps, IEditorAss
 			activity: null,
 			dragOver: false,
 			welcome: props.open,
+			threads: [],
+			activeThreadId: null,
 		};
 	}
 
@@ -215,6 +235,11 @@ export class EditorAssistant extends Component<IEditorAssistantProps, IEditorAss
 	}
 
 	public componentDidMount(): void {
+		if (projectConfiguration.path) {
+			this._threads = tryGetAssistantThreadsFromLocalStorage(projectConfiguration.path);
+			this.setState({ threads: this._threads });
+		}
+
 		this._projectConfigurationObserver = onProjectConfigurationChangedObservable.add((configuration) => {
 			if (configuration.path === this._projectPath) {
 				return;
@@ -272,8 +297,9 @@ export class EditorAssistant extends Component<IEditorAssistantProps, IEditorAss
 	/**
 	 * Starts a session of the agent chosen by the user in the root folder of the project, connected to this editor window.
 	 * @param resume defines wether or not to continue the last conversation of the project instead of starting a new one.
+	 * @param threadId defines the identifier of the thread to open: its own conversation is resumed.
 	 */
-	public async start(resume: boolean): Promise<void> {
+	public async start(resume: boolean, threadId: string | null = null): Promise<void> {
 		if (this._starting || this._pty) {
 			return;
 		}
@@ -288,7 +314,20 @@ export class EditorAssistant extends Component<IEditorAssistantProps, IEditorAss
 		try {
 			this.setState({ status: "searching", error: null, exitCode: null });
 
-			const agent = getAssistantAgent(this.state.agent);
+			this._threads = tryGetAssistantThreadsFromLocalStorage(this._projectPath);
+
+			// A thread is always opened with the agent it is connected to.
+			let thread = threadId
+				? (this._threads.find((item) => item.id === threadId) ?? null)
+				: resume
+					? findResumableAssistantThread(this._threads, this.state.agent, this.state.activeThreadId)
+					: null;
+			if (thread && thread.agent !== this.state.agent) {
+				trySetAssistantAgentInLocalStorage(thread.agent);
+				this.setState({ agent: thread.agent });
+			}
+
+			const agent = getAssistantAgent(thread?.agent ?? this.state.agent);
 			const executable = await agent.findExecutable(tryGetAssistantExecutablePathFromLocalStorage(agent.id));
 			if (!executable) {
 				return this.setState({ status: "not-found", executable: null });
@@ -319,6 +358,44 @@ export class EditorAssistant extends Component<IEditorAssistantProps, IEditorAss
 				await removeAntigravityPlugin(this._sessionId);
 			}
 
+			// The conversation of the thread is resumed by its identifier. Without a thread, the last one of the project is
+			// continued when asked.
+			const startedAt = Date.now();
+			let conversationId: string | null = null;
+			let resumeConversation = false;
+
+			if (thread) {
+				conversationId = thread.conversationId;
+
+				if (agent.id === "claude") {
+					// Claude Code accepts the identifier of a conversation that doesn't exist yet.
+					conversationId ??= randomUUID();
+					resumeConversation = claudeConversationExists(projectDirectory, conversationId);
+				} else {
+					resumeConversation = conversationId !== null;
+				}
+			} else if (resume) {
+				resumeConversation = true;
+			} else {
+				conversationId = agent.id === "claude" ? randomUUID() : null;
+				thread = {
+					id: randomUUID(),
+					name: getDefaultAssistantThreadName(new Date(startedAt)),
+					agent: agent.id,
+					conversationId,
+					createdAt: startedAt,
+					updatedAt: startedAt,
+				};
+				this._threads = [...this._threads, thread];
+			}
+
+			if (thread) {
+				this._threads = updateAssistantThread(this._threads, thread.id, { conversationId, updatedAt: startedAt });
+				this._saveThreads(thread.id);
+			} else {
+				this.setState({ activeThreadId: null });
+			}
+
 			let args: string[];
 			if (agent.id === "codex") {
 				if (pluginDirectory) {
@@ -326,7 +403,7 @@ export class EditorAssistant extends Component<IEditorAssistantProps, IEditorAss
 				}
 
 				// Codex tells what it is doing through the title of its terminal, see _handleTitleChange.
-				args = getCodexArguments(mcpOptions, resume, executable.version);
+				args = getCodexArguments(mcpOptions, resumeConversation, executable.version, conversationId);
 				Object.assign(env, getCodexEnvironment(mcpOptions));
 			} else if (agent.id === "antigravity") {
 				// The previous session may still be removing the plugin.
@@ -340,7 +417,7 @@ export class EditorAssistant extends Component<IEditorAssistantProps, IEditorAss
 					body: antigravityHookAnswer,
 				});
 
-				args = getAntigravityArguments(resume);
+				args = getAntigravityArguments(resumeConversation, conversationId);
 				Object.assign(env, getAntigravityEnvironment(mcpOptions, hooksServer));
 			} else {
 				const hooksServer = supportsAssistantHooks(executable.version) ? await this._startHooksServer((event, input) => this._handleHook(event, input)) : null;
@@ -350,7 +427,13 @@ export class EditorAssistant extends Component<IEditorAssistantProps, IEditorAss
 					hooksServer
 				);
 
-				args = getClaudeArguments(mcpConfigurationPath, settingsPath, resume, pluginDirectory && supportsAssistantPlugin(executable.version) ? pluginDirectory : null);
+				args = getClaudeArguments(
+					mcpConfigurationPath,
+					settingsPath,
+					resumeConversation,
+					pluginDirectory && supportsAssistantPlugin(executable.version) ? pluginDirectory : null,
+					conversationId ? { id: conversationId, resume: resumeConversation } : null
+				);
 			}
 
 			const terminal = this._ensureTerminal();
@@ -405,6 +488,10 @@ export class EditorAssistant extends Component<IEditorAssistantProps, IEditorAss
 
 			this.setState({ status: "running" });
 
+			if (thread && !thread.conversationId) {
+				this._watchConversation(thread.id, agent.id, projectDirectory, startedAt);
+			}
+
 			requestAnimationFrame(() => {
 				this._fit();
 				this.focus();
@@ -446,13 +533,78 @@ export class EditorAssistant extends Component<IEditorAssistantProps, IEditorAss
 	/**
 	 * Stops the current session of the agent, if any, and starts a new one.
 	 * @param resume defines wether or not to continue the last conversation of the project instead of starting a new one.
+	 * @param threadId defines the identifier of the thread to open: its own conversation is resumed.
 	 */
-	public async restart(resume: boolean): Promise<void> {
+	public async restart(resume: boolean, threadId: string | null = null): Promise<void> {
 		this._stopSession();
-		await this.start(resume);
+		await this.start(resume, threadId);
+	}
+
+	/**
+	 * Remembers the given threads of the project and shows them. The thread running in the assistant is the given one.
+	 */
+	private _saveThreads(activeThreadId: string | null = this.state.activeThreadId): void {
+		if (this._projectPath) {
+			trySetAssistantThreadsInLocalStorage(this._projectPath, this._threads);
+		}
+
+		this.setState({ threads: this._threads, activeThreadId });
+	}
+
+	/**
+	 * Codex and Antigravity CLI create their conversation when the user sends the first message: waits for it to find its
+	 * identifier, so the thread resumes its own conversation and not the last one.
+	 */
+	private _watchConversation(threadId: string, agentId: EditorAssistantAgentId, projectDirectory: string, since: number): void {
+		this._stopConversationWatch();
+
+		const maxDuration = 6 * 60 * 60 * 1000;
+
+		this._conversationPoll = setInterval(() => {
+			if (Date.now() - since > maxDuration) {
+				return this._stopConversationWatch();
+			}
+
+			const excluded = this._threads.flatMap((thread) => (thread.id !== threadId && thread.conversationId ? [thread.conversationId] : []));
+			const conversationId = findNewAgentConversation(agentId, projectDirectory, since, excluded);
+			if (!conversationId) {
+				return;
+			}
+
+			this._stopConversationWatch();
+			this._threads = updateAssistantThread(this._threads, threadId, { conversationId });
+			this._saveThreads();
+		}, 3000);
+	}
+
+	private _stopConversationWatch(): void {
+		if (this._conversationPoll) {
+			clearInterval(this._conversationPoll);
+			this._conversationPoll = null;
+		}
+	}
+
+	private _handleThreadSelect(id: string): void {
+		if (id === this.state.activeThreadId && this._pty) {
+			return this.focus();
+		}
+
+		this.restart(false, id);
+	}
+
+	private _handleThreadRename(id: string, name: string): void {
+		this._threads = renameAssistantThread(this._threads, id, name);
+		this._saveThreads();
+	}
+
+	private _handleThreadDelete(id: string): void {
+		this._threads = deleteAssistantThread(this._threads, id);
+		this._saveThreads(id === this.state.activeThreadId ? null : this.state.activeThreadId);
 	}
 
 	private _stopSession(): void {
+		this._stopConversationWatch();
+
 		const pty = this._pty;
 		this._pty = null;
 		pty?.kill();
@@ -1033,7 +1185,15 @@ export class EditorAssistant extends Component<IEditorAssistantProps, IEditorAss
 				</div>
 
 				<div className="flex items-center gap-1 shrink-0">
-					<Button variant="ghost" className="w-8 h-8 !p-0" disabled={!projectConfiguration.path} onClick={() => this.restart(false)}>
+					<AssistantThreadsMenu
+						threads={this.state.threads}
+						activeId={this.state.activeThreadId}
+						onSelect={(id) => this._handleThreadSelect(id)}
+						onRename={(id, name) => this._handleThreadRename(id, name)}
+						onDelete={(id) => this._handleThreadDelete(id)}
+					/>
+
+					<Button variant="ghost" className="w-8 h-8 !p-0" title="New thread" disabled={!projectConfiguration.path} onClick={() => this.restart(false)}>
 						<IoAdd className="w-5 h-5" />
 					</Button>
 

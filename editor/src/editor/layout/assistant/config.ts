@@ -214,9 +214,22 @@ export function supportsAssistantPlugin(claudeVersion: string): boolean {
  * @param resume defines wether or not to continue the last conversation of the project instead of starting a new one.
  * @param pluginDirectory defines the absolute path of the plugin of the assistant, holding the skills of the editor,
  * loaded for the session only.
+ * @param conversation defines the conversation of the thread: resumed by its identifier when "resume" is true, else created
+ * with it. The last conversation of the project is continued when it is not given and "resume" is true.
  */
-export function getClaudeArguments(mcpConfigurationPath: string, settingsPath: string, resume: boolean, pluginDirectory: string | null = null): string[] {
-	return ["--mcp-config", mcpConfigurationPath, "--settings", settingsPath, ...(pluginDirectory ? ["--plugin-dir", pluginDirectory] : []), ...(resume ? ["--continue"] : [])];
+export function getClaudeArguments(
+	mcpConfigurationPath: string,
+	settingsPath: string,
+	resume: boolean,
+	pluginDirectory: string | null = null,
+	conversation: { id: string; resume: boolean } | null = null
+): string[] {
+	let conversationArguments: string[] = resume ? ["--continue"] : [];
+	if (conversation) {
+		conversationArguments = [conversation.resume ? "--resume" : "--session-id", conversation.id];
+	}
+
+	return ["--mcp-config", mcpConfigurationPath, "--settings", settingsPath, ...(pluginDirectory ? ["--plugin-dir", pluginDirectory] : []), ...conversationArguments];
 }
 
 /**

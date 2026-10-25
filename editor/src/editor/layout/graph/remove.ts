@@ -1,6 +1,9 @@
 import { Node, Light, AbstractMesh, Scene, IParticleSystem, Sprite, Skeleton } from "babylonjs";
 
+import { toast } from "sonner";
+
 import { unique } from "../../../tools/tools";
+import { isSceneLinkContent } from "../../../tools/scene/scene-link";
 import { isSprite } from "../../../tools/guards/sprites";
 import { registerUndoRedo } from "../../../tools/undoredo";
 import { updateAllLights } from "../../../tools/light/shadows";
@@ -48,8 +51,13 @@ export function removeNodes(editor: Editor) {
 		.filter((n) => n.nodeData)
 		.map((n) => n.nodeData);
 
+	// The nodes of a prefab belong to the prefab: they are not removed from an instance (disable them, or edit the prefab).
+	if (allData.some((n) => isNode(n) && isSceneLinkContent(n))) {
+		toast.error("The nodes of a prefab can't be removed from an instance: disable them, or edit the prefab.");
+	}
+
 	const nodes = allData
-		.filter((n) => isNode(n))
+		.filter((n): n is Node => isNode(n) && !isSceneLinkContent(n))
 		.map((node) => {
 			const attached = [node]
 				.concat(node.getDescendants(false, (n) => isNode(n)))

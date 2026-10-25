@@ -1,6 +1,3 @@
-import { join, dirname } from "path/posix";
-import { ipcRenderer } from "electron";
-
 import { Component, ReactNode } from "react";
 
 import { AbstractMesh, Node, Observer, TransformNode, Sprite } from "babylonjs";
@@ -11,7 +8,7 @@ import { isTransformNode } from "../../../tools/guards/nodes";
 import { isSceneLinkNode } from "../../../tools/guards/scene";
 import { onNodeModifiedObservable } from "../../../tools/observables";
 
-import { projectConfiguration } from "../../../project/configuration";
+import { applyOverridesToPrefab, openPrefab, unpackSceneLink } from "../../../tools/scene/prefab";
 
 import { EditorInspectorStringField } from "./fields/string";
 import { EditorInspectorVectorField } from "./fields/vector";
@@ -43,6 +40,7 @@ export class EditorTransformNodeInspector extends Component<IEditorInspectorImpl
 
 	public render(): ReactNode {
 		const sceneLink = isSceneLinkNode(this.props.object) ? this.props.object : null;
+		const overrideCount = sceneLink ? Object.keys(sceneLink.getOverrides()).length : 0;
 
 		return (
 			<>
@@ -66,6 +64,35 @@ export class EditorTransformNodeInspector extends Component<IEditorInspectorImpl
 							</Button>
 							<Button variant="ghost" size="sm" disabled={!sceneLink.relativePath} onClick={() => sceneLink.reload()}>
 								Reload
+							</Button>
+						</div>
+
+						<div className="flex items-center gap-2">
+							<div className="flex-1 min-w-0 text-xs opacity-70">
+								{overrideCount ? `${overrideCount} node${overrideCount > 1 ? "s" : ""} overridden in this instance` : "No overrides: this instance is the prefab"}
+							</div>
+							<Button
+								variant="ghost"
+								size="sm"
+								disabled={!overrideCount}
+								onClick={() => {
+									sceneLink.revertOverrides().forEach((n) => onNodeModifiedObservable.notifyObservers(n));
+									this.props.editor.layout.graph.refresh();
+									this.forceUpdate();
+								}}
+							>
+								Revert All
+							</Button>
+							<Button
+								variant="ghost"
+								size="sm"
+								disabled={!overrideCount}
+								onClick={() => applyOverridesToPrefab(this.props.editor, sceneLink).then(() => this.forceUpdate())}
+							>
+								Apply All
+							</Button>
+							<Button variant="ghost" size="sm" onClick={() => unpackSceneLink(this.props.editor, sceneLink)}>
+								Unpack
 							</Button>
 						</div>
 					</EditorInspectorSectionField>
@@ -98,16 +125,9 @@ export class EditorTransformNodeInspector extends Component<IEditorInspectorImpl
 	}
 
 	private _openPrefab(): void {
-		const relativePath = isSceneLinkNode(this.props.object) ? this.props.object.relativePath : null;
-		if (!relativePath || !projectConfiguration.path) {
-			return;
+		if (isSceneLinkNode(this.props.object)) {
+			openPrefab(this.props.editor, this.props.object);
 		}
-
-		ipcRenderer.send("window:open", "build/src/editor/windows/scene", {
-			appPath: this.props.editor.path,
-			scenePath: join(dirname(projectConfiguration.path), relativePath),
-			projectPath: this.props.editor.state.projectPath,
-		});
 	}
 
 	private _gizmoObserver: Observer<Node | Sprite> | null = null;

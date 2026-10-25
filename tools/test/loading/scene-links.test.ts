@@ -1,5 +1,6 @@
 import { describe, expect, test, afterEach } from "vitest";
 
+import { Constants } from "@babylonjs/core/Engines/constants";
 import { NullEngine } from "@babylonjs/core/Engines/nullEngine";
 import { AssetContainer } from "@babylonjs/core/assetContainer";
 import { Vector3 } from "@babylonjs/core/Maths/math.vector";
@@ -14,6 +15,8 @@ import { AdvancedAssetContainer } from "../../src/loading/container/container";
 import { scriptAssetsCache } from "../../src/loading/script/preload";
 import { _instantiateSceneLinks } from "../../src/loading/script/scene-links";
 import { getSceneLinkPath } from "../../src/loading/script/scene-link-path";
+import { loadContainerGeometries } from "../../src/loading/container/geometries";
+import { applyPrefabNodeOverride } from "../../src/loading/container/overrides";
 
 /**
  * Creates a prefab: a root with a child mesh, loaded in the scene like a scene asset is, and returns its container.
@@ -148,6 +151,50 @@ describe("loading/script/scene-links", () => {
 		expect(errors.length).toBe(1);
 	});
 
+	test("applies the overrides of the link on the instance only", async () => {
+		setup();
+
+		const prefab = createPrefab(scene, "Crate");
+		const box = prefab.container.meshes[0] as Mesh;
+		box.id = "boxid";
+		const rootNode = prefab.container.transformNodes[0];
+		rootNode.id = "rootid";
+
+		scriptAssetsCache.get(scene)!.set("crate.scene", prefab);
+
+		const a = new TransformNode("A", scene);
+		a.metadata = { sceneLink: "crate.scene", overrides: { boxid: { position: [1, 2, 3], scaling: [2, 2, 2], isVisible: false }, rootid: { isEnabled: false } } };
+
+		const b = new TransformNode("B", scene);
+		b.metadata = { sceneLink: "crate.scene" };
+
+		await _instantiateSceneLinks(scene);
+
+		const instanceBoxOfA = a.getChildren()[0].getChildren()[0] as Mesh;
+		const instanceBoxOfB = b.getChildren()[0].getChildren()[0] as Mesh;
+
+		expect(instanceBoxOfA.position.asArray()).toEqual([1, 2, 3]);
+		expect(instanceBoxOfA.scaling.asArray()).toEqual([2, 2, 2]);
+		expect(instanceBoxOfA.isVisible).toBe(false);
+		expect((a.getChildren()[0] as TransformNode).isEnabled(false)).toBe(false);
+
+		// The other instance and the prefab are untouched.
+		expect(instanceBoxOfB.position.asArray()).toEqual([0, 0, 0]);
+		expect(instanceBoxOfB.isVisible).toBe(true);
+		expect((b.getChildren()[0] as TransformNode).isEnabled(false)).toBe(true);
+	});
+
+	test("an override of a script replaces the scripts of the node", () => {
+		setup();
+
+		const node = new TransformNode("n", scene);
+		node.metadata = { scripts: [{ key: "scripts/a.ts", values: { speed: { type: "number", value: 1 } } }] };
+
+		applyPrefabNodeOverride(node, { scripts: [{ key: "scripts/a.ts", values: { speed: { type: "number", value: 9 } } }] });
+
+		expect(node.metadata.scripts[0].values.speed.value).toBe(9);
+	});
+
 	test("warns about a link whose scene was not loaded", async () => {
 		setup();
 
@@ -165,5 +212,31 @@ describe("loading/script/scene-links", () => {
 		}
 
 		expect(warnings.length).toBe(1);
+	});
+});
+
+describe("loading/container/geometries", () => {
+	test("waits for the delay loaded geometries of the meshes of a container", async () => {
+		const engine = new NullEngine();
+		const scene = new Scene(engine);
+
+		const container = new AssetContainer(scene);
+		const lazy = Mesh.CreateBox("lazy", 1, scene);
+		const eager = Mesh.CreateBox("eager", 1, scene);
+		container.meshes.push(lazy, eager);
+
+		// A geometry that arrives a little after it is asked for.
+		lazy.delayLoadState = Constants.DELAYLOADSTATE_NOTLOADED;
+		lazy._checkDelayState = () => {
+			lazy.delayLoadState = Constants.DELAYLOADSTATE_LOADING;
+			setTimeout(() => (lazy.delayLoadState = Constants.DELAYLOADSTATE_LOADED), 60);
+		};
+
+		await loadContainerGeometries(container);
+
+		expect(lazy.delayLoadState).toBe(Constants.DELAYLOADSTATE_LOADED);
+
+		scene.dispose();
+		engine.dispose();
 	});
 });

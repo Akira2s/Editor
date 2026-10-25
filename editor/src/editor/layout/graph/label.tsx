@@ -8,7 +8,8 @@ import { useEventListener } from "usehooks-ts";
 import { Input } from "../../../ui/shadcn/ui/input";
 
 import { isDarwin } from "../../../tools/os";
-import { isScene } from "../../../tools/guards/scene";
+import { isScene, isSceneLinkNode } from "../../../tools/guards/scene";
+import { getRootSceneLink, isSceneLinkContent, createSceneLink } from "../../../tools/scene/scene-link";
 import { registerUndoRedo } from "../../../tools/undoredo";
 import { isClusteredLight } from "../../../tools/light/cluster";
 import { isNodeSerializable, isNodeLocked } from "../../../tools/node/metadata";
@@ -153,17 +154,38 @@ export function EditorGraphLabel(props: IEditorGraphLabelProps) {
 						});
 					}
 					break;
+
+				// A prefab dropped on a node becomes its child (not inside another prefab).
+				case ".scene":
+					createSceneLink(props.editor, absolutePath).then((link) => {
+						if (link && isNode(props.object) && !isSceneLinkNode(props.object) && !getRootSceneLink(props.object)) {
+							link.parent = props.object;
+						}
+
+						props.editor.layout.graph.refresh();
+					});
+					break;
 			}
 		});
 	}
 
 	function handleRenameObject() {
+		// The name of a node of a prefab is the prefab's.
+		if (props.object && isNode(props.object) && isSceneLinkContent(props.object)) {
+			return;
+		}
+
 		if (props.object.name) {
 			setRenaming(!renaming);
 		}
 	}
 
 	function handleInputNameBlurred() {
+		// Only a rename is undoable: the label also loses the focus when nothing was renamed (clicking elsewhere), which must not fill the undo stack.
+		if (!renaming) {
+			return;
+		}
+
 		registerUndoRedo({
 			executeRedo: true,
 			undo: () => (props.object.name = props.name),
@@ -192,11 +214,22 @@ export function EditorGraphLabel(props: IEditorGraphLabelProps) {
 
 		const isClusteredLightNode = isLight(props.object) && isClusteredLight(props.object, props.editor);
 
+		// Prefab instances and their nodes are blue, and bold where the instance overrides something (like Unity).
+		const sceneLink = props.object && isNode(props.object) ? getRootSceneLink(props.object) : null;
+		const hasScripts = !!props.object?.metadata?.scripts?.length;
+		const overridden = sceneLink
+			? isSceneLinkNode(props.object)
+				? Object.keys(sceneLink.getOverrides()).length > 0
+				: sceneLink.getNodeOverride(props.object) !== null
+			: false;
+
 		const label = (
 			<div
 				className={`
 					${isInstancedMesh(props.object) ? "italic opacity-50" : ""}
-					${props.object?.metadata?.scripts?.length ? "text-bjs-orange font-bold !opacity-100" : ""}
+					${hasScripts ? "text-bjs-orange font-bold !opacity-100" : ""}
+					${sceneLink && !hasScripts ? "text-sky-400" : ""}
+					${overridden ? "font-bold" : ""}
 					${!isNodeSerializable(props.object) ? "line-through" : ""}
 					${!isNodeSerializable(props.object) || isNodeLocked(props.object) ? "text-foreground/35" : ""}
 					${isClusteredLightNode ? "opacity-50 italic" : ""}

@@ -5,6 +5,7 @@ import { LoadAssetContainerAsync } from "@babylonjs/core/Loading/sceneLoader";
 import { isMesh } from "../../../tools/guards";
 
 import { configureTransformNodes } from "../../transform-node";
+import { loadContainerGeometries } from "../../container/geometries";
 
 export async function preloadSceneScriptAsset(key: string, rootUrl: string, scene: Scene) {
 	const iblIntensity = scene.iblIntensity;
@@ -29,6 +30,9 @@ export async function preloadSceneScriptAsset(key: string, rootUrl: string, scen
 	}
 
 	container.addAllToScene();
+
+	// The container is instantiated synchronously later: its geometries must be there.
+	await loadContainerGeometries(container);
 
 	scene.iblIntensity = iblIntensity;
 	scene.environmentIntensity = environmentIntensity;

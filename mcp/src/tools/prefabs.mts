@@ -5,6 +5,16 @@ import { z } from "zod";
 
 import { callTextTool } from "./helpers.mjs";
 
+const instanceSelector = {
+	linkId: z.string().optional().describe("Id of the prefab instance (scene link)."),
+	linkName: z.string().optional().describe("Name of the prefab instance (scene link)."),
+};
+
+const prefabNodeSelector = {
+	nodeId: z.string().optional().describe("Id of the node in the prefab (see `get_prefab_instance`)."),
+	nodeName: z.string().optional().describe("Name of the node in the prefab."),
+};
+
 export function registerPrefabTools(server: McpServer): void {
 	server.registerTool(
 		"list_prefabs",
@@ -37,6 +47,71 @@ export function registerPrefabTools(server: McpServer): void {
 			}),
 		},
 		async (args): Promise<CallToolResult> => callTextTool("create_prefab", args)
+	);
+
+	server.registerTool(
+		"get_prefab_instance",
+		{
+			title: "Get prefab instance",
+			description:
+				"Describe a prefab instance (a scene link): the prefab it shows, the nodes of that prefab (name and id) and what this instance overrides. " +
+				"Use it before `set_prefab_override` to find the node to change.",
+			inputSchema: z.object({ ...instanceSelector }),
+			annotations: { readOnlyHint: true },
+		},
+		async (args): Promise<CallToolResult> => callTextTool("get_prefab_instance", args)
+	);
+
+	server.registerTool(
+		"set_prefab_override",
+		{
+			title: "Set prefab override",
+			description:
+				"Change a node of the prefab in ONE instance only (Unity's per-instance override): position, rotation, scaling, enabled or visible. The prefab and the other instances keep " +
+				"their values. To change every instance, edit the prefab itself (or `apply_prefab_overrides`). The overrides are saved with the scene.",
+			inputSchema: z.object({
+				...instanceSelector,
+				...prefabNodeSelector,
+				position: z.array(z.number()).length(3).optional().describe("[x, y, z] local position."),
+				rotation: z.array(z.number()).length(3).optional().describe("[x, y, z] local rotation, in radians."),
+				scaling: z.array(z.number()).length(3).optional().describe("[x, y, z] local scaling."),
+				isEnabled: z.boolean().optional().describe("Enable or disable the node."),
+				isVisible: z.boolean().optional().describe("Show or hide the mesh."),
+			}),
+		},
+		async (args): Promise<CallToolResult> => callTextTool("set_prefab_override", args)
+	);
+
+	server.registerTool(
+		"revert_prefab_overrides",
+		{
+			title: "Revert prefab overrides",
+			description: "Put a node of the prefab (`nodeId`/`nodeName`), or all of them when omitted, back as the prefab defines it in one instance.",
+			inputSchema: z.object({ ...instanceSelector, ...prefabNodeSelector }),
+		},
+		async (args): Promise<CallToolResult> => callTextTool("revert_prefab_overrides", args)
+	);
+
+	server.registerTool(
+		"apply_prefab_overrides",
+		{
+			title: "Apply prefab overrides",
+			description:
+				"Write what an instance overrides (a node, or all of them when `nodeId`/`nodeName` are omitted) in the prefab itself: every instance then shows it. The user is asked to confirm because the prefab asset is modified.",
+			inputSchema: z.object({ ...instanceSelector, ...prefabNodeSelector }),
+		},
+		async (args): Promise<CallToolResult> => callTextTool("apply_prefab_overrides", args)
+	);
+
+	server.registerTool(
+		"unpack_prefab",
+		{
+			title: "Unpack prefab",
+			description:
+				"Turn a prefab instance into plain nodes of the scene (with what it overrides), not connected to the prefab anymore, so they can be edited freely. The user is asked to confirm because the link to the prefab is lost.",
+			inputSchema: z.object({ ...instanceSelector }),
+		},
+		async (args): Promise<CallToolResult> => callTextTool("unpack_prefab", args)
 	);
 
 	server.registerTool(

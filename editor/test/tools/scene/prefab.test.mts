@@ -4,7 +4,7 @@ import { NullEngine, Scene, TransformNode, Mesh, FreeCamera, PointLight, Vector3
 
 vi.mock("babylonjs-editor-tools", () => ({}));
 
-import { getPrefabName, getPrefabRoots } from "../../../src/tools/scene/prefab";
+import { getPrefabName, getPrefabRoots, getPrefabSelectionProblem } from "../../../src/tools/scene/prefab";
 
 describe("tools/scene/prefab", () => {
 	let engine: NullEngine;
@@ -68,6 +68,33 @@ describe("tools/scene/prefab", () => {
 
 		test("returns nothing for an empty selection", () => {
 			expect(getPrefabRoots([])).toEqual([]);
+		});
+	});
+
+	describe("getPrefabSelectionProblem", () => {
+		test("a mesh with its instances is fine", () => {
+			const mesh = new Mesh("source", scene);
+			const instance = mesh.createInstance("copy");
+
+			expect(getPrefabSelectionProblem(new Set([mesh, instance]))).toBeNull();
+		});
+
+		test("a mesh with instances left outside would take them away from the scene", () => {
+			const mesh = new Mesh("source", scene);
+			mesh.createInstance("copy");
+
+			expect(getPrefabSelectionProblem(new Set([mesh]))).toMatch(/"source" has instances outside the selection \("copy"\)/);
+		});
+
+		test("an instance without its source mesh would save nothing", () => {
+			const mesh = new Mesh("source", scene);
+			const instance = mesh.createInstance("copy");
+
+			expect(getPrefabSelectionProblem(new Set([instance]))).toMatch(/"copy" is an instance of "source"/);
+		});
+
+		test("plain nodes are fine", () => {
+			expect(getPrefabSelectionProblem(new Set([new TransformNode("a", scene), new Mesh("b", scene)]))).toBeNull();
 		});
 	});
 });

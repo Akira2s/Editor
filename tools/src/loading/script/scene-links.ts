@@ -1,6 +1,4 @@
 import { Node } from "@babylonjs/core/node";
-import { Constants } from "@babylonjs/core/Engines/constants";
-import { Mesh } from "@babylonjs/core/Meshes/mesh";
 import { Scene } from "@babylonjs/core/scene";
 
 import { AdvancedAssetContainer } from "../container/container";
@@ -15,26 +13,6 @@ import { getSceneLinkPath } from "./scene-link-path";
 const maxSceneLinkDepth: number = 16;
 
 const instantiatedSceneLinks = new WeakSet<Node>();
-
-/**
- * Defines the time, in milliseconds, to wait for the geometries of a linked scene before giving up.
- */
-const geometriesLoadingTimeout: number = 30000;
-
-/**
- * Loads the geometries of the meshes of the given scenes. Packed geometries are delay loaded: the meshes of a linked scene never
- * render (only their instances do), so nothing else would load them.
- */
-async function loadLinkedGeometries(containers: AdvancedAssetContainer[]): Promise<void> {
-	const meshes = containers.flatMap((container) => container.container.meshes).filter((mesh): mesh is Mesh => mesh instanceof Mesh && !!mesh.delayLoadState);
-
-	meshes.forEach((mesh) => mesh._checkDelayState());
-
-	const start = Date.now();
-	while (meshes.some((mesh) => mesh.delayLoadState !== Constants.DELAYLOADSTATE_LOADED) && Date.now() - start < geometriesLoadingTimeout) {
-		await new Promise((resolve) => setTimeout(resolve, 20));
-	}
-}
 
 /**
  * Instantiates, under each scene link of the scene, the scene it links to (a prefab): the nodes, meshes, lights... of the
@@ -60,7 +38,6 @@ export async function _instantiateSceneLinks(scene: Scene): Promise<number> {
 		.map((path) => cache.get(path))
 		.filter((container): container is AdvancedAssetContainer => container instanceof AdvancedAssetContainer);
 
-	await loadLinkedGeometries(linked);
 	linked.forEach((container) => container.removeDefault());
 
 	let count = 0;
@@ -80,7 +57,7 @@ export async function _instantiateSceneLinks(scene: Scene): Promise<number> {
 				return console.warn(`Scene link "${link.name}" points to "${path}", which could not be loaded.`);
 			}
 
-			container.instantiate().rootNodes.forEach((root) => {
+			container.instantiate({ overrides: link.metadata?.overrides }).rootNodes.forEach((root) => {
 				root.parent = link;
 			});
 

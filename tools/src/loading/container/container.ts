@@ -13,6 +13,7 @@ import { configureTransformNodes } from "../transform-node";
 import { _applyScriptsForObject, _removeRegisteredScriptInstance, getAllScriptsByClassForObject, scriptsDictionary } from "../script/apply";
 
 import { AdvancedAssetContainerInstantiatedEntries } from "./entries";
+import { applyPrefabNodeOverride, PrefabOverrides } from "./overrides";
 
 export interface IAdvancedAssetContainerInstantiateOptions {
 	/**
@@ -23,6 +24,11 @@ export interface IAdvancedAssetContainerInstantiateOptions {
 	 * Defines a predicate used to filter whih mesh to instantiate/clone
 	 */
 	predicate?: (entity: any) => boolean;
+	/**
+	 * Defines what this instance changes on the nodes of the container (see `IPrefabNodeOverride`), keyed by the id of the nodes in
+	 * the container. Applied before the scripts of the instance start, so overridden Inspector values are the ones they read.
+	 */
+	overrides?: PrefabOverrides;
 }
 
 interface _ISavedMapEntry {
@@ -178,6 +184,11 @@ export class AdvancedAssetContainer {
 			newNode.metadata = cloneJSObject(this._nodesMap.get(originalNode)!.metadata);
 			newNode.metadata ??= {};
 			newNode.metadata.originalId = originalId;
+
+			const override = options?.overrides?.[originalId!];
+			if (override) {
+				applyPrefabNodeOverride(newNode, override);
+			}
 
 			newDescendants.forEach((node) => {
 				node.metadata?.scripts?.forEach((script) => {

@@ -368,15 +368,21 @@ export async function revealPrefab(editor: Editor, link: SceneLinkNode): Promise
  * @param editor defines the reference to the editor.
  * @param link defines the instance.
  * @param node defines the node of the prefab whose overrides are applied.
+ * @param entryIds defines the properties of the node to apply (@see SceneLinkNode.getOverrideEntries), all of them when not set.
  * @returns the number of nodes of the prefab that changed.
  */
-export async function applyOverridesToPrefab(editor: Editor, link: SceneLinkNode, node?: Node): Promise<number> {
+export async function applyOverridesToPrefab(editor: Editor, link: SceneLinkNode, node?: Node, entryIds?: string[]): Promise<number> {
 	if (!projectConfiguration.path || !link.relativePath) {
 		return 0;
 	}
 
 	const all = link.getOverrides();
-	const overrides = node ? (all[node.id] ? { [node.id]: all[node.id] } : {}) : all;
+	let overrides = node ? (all[node.id] ? { [node.id]: all[node.id] } : {}) : all;
+
+	if (node && entryIds) {
+		const patch = link.getOverrideEntriesPatch(node, entryIds);
+		overrides = patch ? { [node.id]: patch } : {};
+	}
 
 	if (!Object.keys(overrides).length) {
 		return 0;

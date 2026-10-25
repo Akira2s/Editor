@@ -103,7 +103,8 @@ export function diffPrefabNode(baseline: IPrefabNodeOverride, current: IPrefabNo
 		diff.isVisible = current.isVisible;
 	}
 
-	if (JSON.stringify(baseline.scripts ?? null) !== JSON.stringify(current.scripts ?? null)) {
+	// Only what the user can change counts: the Inspector rewrites the descriptions and types of the values of a script when it shows them.
+	if (diffPrefabScripts(baseline.scripts, current.scripts).length) {
 		diff.scripts = current.scripts ?? [];
 	}
 
@@ -178,4 +179,191 @@ export function getPrefabOverrideProperties(override: IPrefabNodeOverride): stri
 	}
 
 	return names;
+}
+
+/**
+ * One thing an instance changes on a node of its prefab: a transform property, the enabled/visible state, or a script (the whole script, its
+ * enabled state or one of its Inspector values). It is what the overrides menu lists, and what can be reverted or applied on its own.
+ */
+export interface IPrefabOverrideEntry {
+	/**
+	 * Identifies the entry among the ones of the node: "position", "rotation", "scaling", "enabled", "visible", "script:<key>",
+	 * "script:<key>:@enabled" or "script:<key>:<value name>".
+	 */
+	id: string;
+	/**
+	 * The component the property belongs to: "Transform", "Node" or the name of the script.
+	 */
+	component: string;
+	label: string;
+}
+
+const scriptPrefix = "script:";
+
+function getScriptName(key: string): string {
+	return (key.split("/").pop() ?? key).replace(/\.[jt]sx?$/, "");
+}
+
+function findScript(scripts: any[] | undefined, key: string): any | undefined {
+	return scripts?.find((script) => script.key === key);
+}
+
+function sameJson(a: unknown, b: unknown): boolean {
+	return JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
+}
+
+/**
+ * Returns what differs between the scripts of a node as the prefab defines them and as the instance has them.
+ */
+export function diffPrefabScripts(before: any[] | undefined, after: any[] | undefined): IPrefabOverrideEntry[] {
+	const entries: IPrefabOverrideEntry[] = [];
+	const keys = new Set<string>([...(before ?? []), ...(after ?? [])].map((script) => script.key));
+
+	keys.forEach((key) => {
+		const was = findScript(before, key);
+		const now = findScript(after, key);
+		const component = getScriptName(key);
+
+		if (!was || !now) {
+			entries.push({ id: `${scriptPrefix}${key}`, component, label: was ? "Removed" : "Added" });
+			return;
+		}
+
+		if (!!was.enabled !== !!now.enabled) {
+			entries.push({ id: `${scriptPrefix}${key}:@enabled`, component, label: "Enabled" });
+		}
+
+		const names = new Set<string>([...Object.keys(was.values ?? {}), ...Object.keys(now.values ?? {})]);
+		names.forEach((name) => {
+			if (!sameJson(was.values?.[name]?.value, now.values?.[name]?.value)) {
+				entries.push({ id: `${scriptPrefix}${key}:${name}`, component, label: name });
+			}
+		});
+	});
+
+	return entries;
+}
+
+/**
+ * Returns what the instance changes between the two snapshots of a node, one entry per property.
+ */
+export function listPrefabOverrideEntries(baseline: IPrefabNodeOverride, current: IPrefabNodeOverride): IPrefabOverrideEntry[] {
+	const diff = diffPrefabNode(baseline, current);
+	if (!diff) {
+		return [];
+	}
+
+	const entries: IPrefabOverrideEntry[] = [];
+
+	if (diff.position) {
+		entries.push({ id: "position", component: "Transform", label: "Position" });
+	}
+
+	if (diff.rotation || diff.rotationQuaternion) {
+		entries.push({ id: "rotation", component: "Transform", label: "Rotation" });
+	}
+
+	if (diff.scaling) {
+		entries.push({ id: "scaling", component: "Transform", label: "Scaling" });
+	}
+
+	if (diff.isEnabled !== undefined) {
+		entries.push({ id: "enabled", component: "Node", label: "Enabled" });
+	}
+
+	if (diff.isVisible !== undefined) {
+		entries.push({ id: "visible", component: "Node", label: "Visible" });
+	}
+
+	if (diff.scripts) {
+		entries.push(...diffPrefabScripts(baseline.scripts, current.scripts));
+	}
+
+	return entries;
+}
+
+/**
+ * Returns a copy of the `target` snapshot of a node where the given entries have the value they have in the `source` snapshot. Used both ways:
+ * to revert entries of an instance (target is the instance, source the prefab) and to apply them to the prefab (the other way around).
+ */
+export function mergePrefabOverrideEntries(target: IPrefabNodeOverride, source: IPrefabNodeOverride, entryIds: string[]): IPrefabNodeOverride {
+	const merged: IPrefabNodeOverride = JSON.parse(JSON.stringify(target));
+	const from: IPrefabNodeOverride = JSON.parse(JSON.stringify(source));
+
+	entryIds.forEach((id) => {
+		switch (id) {
+			case "position":
+				merged.position = from.position;
+				break;
+			case "rotation":
+				delete merged.rotation;
+				delete merged.rotationQuaternion;
+				if (from.rotationQuaternion) {
+					merged.rotationQuaternion = from.rotationQuaternion;
+				} else if (from.rotation) {
+					merged.rotation = from.rotation;
+				}
+				break;
+			case "scaling":
+				merged.scaling = from.scaling;
+				break;
+			case "enabled":
+				merged.isEnabled = from.isEnabled;
+				break;
+			case "visible":
+				merged.isVisible = from.isVisible;
+				break;
+			default: {
+				if (!id.startsWith(scriptPrefix)) {
+					break;
+				}
+
+				const [key, name] = splitScriptEntryId(id);
+				const fromScript = findScript(from.scripts, key);
+				merged.scripts ??= [];
+				const script = findScript(merged.scripts, key);
+
+				if (name === undefined) {
+					// The script was added or removed: it follows the other side.
+					merged.scripts = merged.scripts.filter((s) => s.key !== key);
+					if (fromScript) {
+						merged.scripts.push(fromScript);
+					}
+					break;
+				}
+
+				if (!fromScript || !script) {
+					break;
+				}
+
+				if (name === "@enabled") {
+					script.enabled = fromScript.enabled;
+					break;
+				}
+
+				script.values ??= {};
+				if (fromScript.values?.[name]) {
+					script.values[name] = fromScript.values[name];
+				} else {
+					delete script.values[name];
+				}
+			}
+		}
+	});
+
+	return merged;
+}
+
+function splitScriptEntryId(id: string): [string, string | undefined] {
+	const rest = id.substring(scriptPrefix.length);
+	const index = rest.indexOf(":");
+
+	return index === -1 ? [rest, undefined] : [rest.substring(0, index), rest.substring(index + 1)];
+}
+
+/**
+ * Returns the ids of the script entries of an Inspector value, for the markers next to the fields.
+ */
+export function getScriptValueEntryId(scriptKey: string, valueName: string): string {
+	return `${scriptPrefix}${scriptKey}:${valueName}`;
 }

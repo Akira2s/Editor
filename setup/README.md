@@ -23,7 +23,10 @@ Everything is asked up front, then done at the end.
 | Which missing prerequisites to install (uv, Blender, the fork) | | |
 | ComfyUI: local (which tier), Comfy Cloud, or skip | `COMFY_MODE`, `COMFY_TIER` in `.env` | the tier your GPU fits |
 
-No machine-specific path is hardcoded: an environment variable wins, then the project's `.env`, then the question.
+No machine-specific path is hardcoded: a flag wins (`--fork-dir=<path>`, `--comfyui-dir=<path>`), then an environment
+variable, then the project's `.env`, then the question. Without a terminal to ask in (an agent or a script running it),
+the fork folder is never guessed: pass `--fork-dir`, set `EDITOR_FORK_DIR`, or pass `--yes` to accept the default;
+otherwise the fork step is skipped and the script says so.
 `TOOLS_DIR` (optional, default `~/tools`) is where the retopo helpers look for Instant Meshes, QuadWild and AutoRemesher.
 
 Scripted runs: `--yes` accepts the defaults and installs everything missing, `--no-prompt` installs nothing,

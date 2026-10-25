@@ -1,4 +1,6 @@
 import { Node } from "@babylonjs/core/node";
+import { Constants } from "@babylonjs/core/Engines/constants";
+import { Mesh } from "@babylonjs/core/Meshes/mesh";
 import { Scene } from "@babylonjs/core/scene";
 
 import { AdvancedAssetContainer } from "../container/container";
@@ -15,6 +17,26 @@ const maxSceneLinkDepth: number = 16;
 const instantiatedSceneLinks = new WeakSet<Node>();
 
 /**
+ * Defines the time, in milliseconds, to wait for the geometries of a linked scene before giving up.
+ */
+const geometriesLoadingTimeout: number = 30000;
+
+/**
+ * Loads the geometries of the meshes of the given scenes. Packed geometries are delay loaded: the meshes of a linked scene never
+ * render (only their instances do), so nothing else would load them.
+ */
+async function loadLinkedGeometries(containers: AdvancedAssetContainer[]): Promise<void> {
+	const meshes = containers.flatMap((container) => container.container.meshes).filter((mesh): mesh is Mesh => mesh instanceof Mesh && !!mesh.delayLoadState);
+
+	meshes.forEach((mesh) => mesh._checkDelayState());
+
+	const start = Date.now();
+	while (meshes.some((mesh) => mesh.delayLoadState !== Constants.DELAYLOADSTATE_LOADED) && Date.now() - start < geometriesLoadingTimeout) {
+		await new Promise((resolve) => setTimeout(resolve, 20));
+	}
+}
+
+/**
  * Instantiates, under each scene link of the scene, the scene it links to (a prefab): the nodes, meshes, lights... of the
  * linked scene are cloned or instanced as children of the link, and the scripts attached to them run.
  * The linked scenes must be loaded in `scriptAssetsCache` (see `_preloadScriptsAssets`, which does it for the scene links).
@@ -22,7 +44,7 @@ const instantiatedSceneLinks = new WeakSet<Node>();
  * @param scene defines the reference to the scene where to instantiate the scene links.
  * @returns the number of scene links instantiated.
  */
-export function _instantiateSceneLinks(scene: Scene): number {
+export async function _instantiateSceneLinks(scene: Scene): Promise<number> {
 	const cache = scriptAssetsCache.get(scene);
 	if (!cache) {
 		return 0;
@@ -34,12 +56,12 @@ export function _instantiateSceneLinks(scene: Scene): number {
 	const originals = new Set<Node>(containers.flatMap((container) => container.container.getNodes()));
 
 	// A prefab that is linked only shows through its instances.
-	new Set(scene.transformNodes.map((node) => getSceneLinkPath(node)).filter((path): path is string => path !== null)).forEach((path) => {
-		const container = cache.get(path);
-		if (container instanceof AdvancedAssetContainer) {
-			container.removeDefault();
-		}
-	});
+	const linked = Array.from(new Set(scene.transformNodes.map((node) => getSceneLinkPath(node)).filter((path): path is string => path !== null)))
+		.map((path) => cache.get(path))
+		.filter((container): container is AdvancedAssetContainer => container instanceof AdvancedAssetContainer);
+
+	await loadLinkedGeometries(linked);
+	linked.forEach((container) => container.removeDefault());
 
 	let count = 0;
 

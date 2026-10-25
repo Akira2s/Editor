@@ -67,7 +67,7 @@ describe("loading/script/scene-links", () => {
 		expect(getSceneLinkPath(node)).toBeNull();
 	});
 
-	test("instantiates the prefab under each link and removes the originals", () => {
+	test("instantiates the prefab under each link and removes the originals", async () => {
 		setup();
 
 		const cache = scriptAssetsCache.get(scene)!;
@@ -81,7 +81,7 @@ describe("loading/script/scene-links", () => {
 		b.metadata = { sceneLink: "assets/prefabs/Tree.scene" };
 		b.position = new Vector3(-5, 0, 0);
 
-		expect(_instantiateSceneLinks(scene)).toBe(2);
+		expect(await _instantiateSceneLinks(scene)).toBe(2);
 
 		[a, b].forEach((link) => {
 			const roots = link.getChildren();
@@ -98,7 +98,7 @@ describe("loading/script/scene-links", () => {
 		expect(instanceBox.getAbsolutePosition().x).toBeCloseTo(5);
 	});
 
-	test("does not instantiate twice", () => {
+	test("does not instantiate twice", async () => {
 		setup();
 
 		scriptAssetsCache.get(scene)!.set("p.scene", createPrefab(scene, "P"));
@@ -106,12 +106,12 @@ describe("loading/script/scene-links", () => {
 		const link = new TransformNode("link", scene);
 		link.metadata = { sceneLink: "p.scene" };
 
-		expect(_instantiateSceneLinks(scene)).toBe(1);
-		expect(_instantiateSceneLinks(scene)).toBe(0);
+		expect(await _instantiateSceneLinks(scene)).toBe(1);
+		expect(await _instantiateSceneLinks(scene)).toBe(0);
 		expect(link.getChildren()).toHaveLength(1);
 	});
 
-	test("instantiates prefabs made of prefabs", () => {
+	test("instantiates prefabs made of prefabs", async () => {
 		setup();
 
 		const cache = scriptAssetsCache.get(scene)!;
@@ -122,12 +122,12 @@ describe("loading/script/scene-links", () => {
 		link.metadata = { sceneLink: "outer.scene" };
 
 		// The outer prefab and the link nested in it.
-		expect(_instantiateSceneLinks(scene)).toBe(2);
+		expect(await _instantiateSceneLinks(scene)).toBe(2);
 		expect(scene.transformNodes.filter((n) => n.name.startsWith("InnerRoot"))).toHaveLength(1);
 		expect(scene.transformNodes.filter((n) => n.name.startsWith("OuterRoot"))).toHaveLength(1);
 	});
 
-	test("stops on a scene that links to itself", () => {
+	test("stops on a scene that links to itself", async () => {
 		setup();
 
 		scriptAssetsCache.get(scene)!.set("loop.scene", createPrefab(scene, "Loop", "loop.scene"));
@@ -140,7 +140,7 @@ describe("loading/script/scene-links", () => {
 		console.error = (...args: unknown[]) => errors.push(args);
 
 		try {
-			expect(_instantiateSceneLinks(scene)).toBeLessThanOrEqual(16);
+			expect(await _instantiateSceneLinks(scene)).toBeLessThanOrEqual(16);
 		} finally {
 			console.error = originalError;
 		}
@@ -148,7 +148,7 @@ describe("loading/script/scene-links", () => {
 		expect(errors.length).toBe(1);
 	});
 
-	test("warns about a link whose scene was not loaded", () => {
+	test("warns about a link whose scene was not loaded", async () => {
 		setup();
 
 		const link = new TransformNode("link", scene);
@@ -159,7 +159,7 @@ describe("loading/script/scene-links", () => {
 		console.warn = (...args: unknown[]) => warnings.push(args);
 
 		try {
-			expect(_instantiateSceneLinks(scene)).toBe(0);
+			expect(await _instantiateSceneLinks(scene)).toBe(0);
 		} finally {
 			console.warn = originalWarn;
 		}

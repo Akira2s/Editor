@@ -187,7 +187,7 @@ export async function loadScene(rootUrl: string, sceneFilename: string, scene: S
 		} while (loadedAssetsCount !== 0 && !scene.isDisposed);
 
 		// Scenes linked in the editor (prefab instances) are now loaded: instantiate them.
-		_instantiateSceneLinks(scene);
+		await _instantiateSceneLinks(scene);
 	}
 
 	// Ensure all meshes perform their delay state check

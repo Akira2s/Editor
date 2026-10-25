@@ -4,6 +4,7 @@ import os from 'os';
 import path from 'path';
 import { execSync } from 'child_process';
 import readline from 'readline/promises';
+import { planComfyUI, runComfyUIPlan } from './comfyui-setup.mjs';
 
 const rootDir = process.cwd();
 
@@ -24,6 +25,7 @@ console.log('🚀 Provisioning Babylon.js Editor v5 AI Development Stack...\n');
 // 0. Prerequisites: detect what is missing and ask up front what to install.
 //    Flags for scripted runs: --yes (install everything missing), --no-prompt (install nothing),
 //    --install-blender (kept for compatibility). Without a TTY nothing is installed unless a flag says so.
+//    ComfyUI (see comfyui-setup.mjs): --comfyui=local|cloud|skip, --tier=<id>, --with=<group,...>, --dry-run.
 // ---------------------------------------------------------------------------
 const cliArgs = process.argv.slice(2);
 // Locations are never hardcoded: an environment variable wins, then the project's .env (written by an earlier run),
@@ -135,6 +137,9 @@ if (missing.length > 0) {
   }
   console.log('');
 }
+
+// ComfyUI: hardware check, local tier or Comfy Cloud. Everything is asked here; the work happens at the end.
+const comfyPlan = await planComfyUI({ rl, interactive, assumeYes, cliArgs, comfyRoot, projectDir: rootDir, dryRun: cliArgs.includes('--dry-run') });
 rl?.close();
 
 // ---------------------------------------------------------------------------
@@ -2581,3 +2586,5 @@ try {
 } catch (err) {
   console.error('\n❌ npm install encountered an error. Run "npm install" manually.', err);
 }
+
+await runComfyUIPlan(comfyPlan, { setProjectEnv: setEnvValue });

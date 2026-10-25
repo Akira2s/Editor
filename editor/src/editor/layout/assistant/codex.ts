@@ -148,8 +148,9 @@ function toTomlArray(values: string[]): string {
  * installation is needed.
  * @param resume defines wether or not to continue the last conversation of the project instead of starting a new one.
  * @param version defines the version of Codex, like "0.158.0".
+ * @param conversationId defines the identifier of the conversation to resume, the last one is resumed without it.
  */
-export function getCodexArguments(options: IAssistantMcpConfigurationOptions, resume: boolean, version: string): string[] {
+export function getCodexArguments(options: IAssistantMcpConfigurationOptions, resume: boolean, version: string, conversationId: string | null = null): string[] {
 	const server = [
 		`command = ${toTomlString(options.executablePath)}`,
 		`args = ${toTomlArray([options.serverScriptPath])}`,
@@ -163,7 +164,7 @@ export function getCodexArguments(options: IAssistantMcpConfigurationOptions, re
 	];
 
 	return [
-		...(resume ? ["resume", "--last"] : []),
+		...(resume ? ["resume", conversationId ?? "--last"] : []),
 		...(compareVersions(version, codexNoDaemonMinimumVersion) >= 0 ? ["--no-daemon"] : []),
 		"-c",
 		`mcp_servers.${assistantMcpServerName}={ ${server.join(", ")} }`,

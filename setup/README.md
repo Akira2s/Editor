@@ -24,8 +24,23 @@ Everything is asked up front, then done at the end.
 |---|---|---|
 | Folder of the Editor fork checkout (reused if it exists, cloned there otherwise) | `EDITOR_FORK_DIR` in the project's `.env` | `~/babylonjs-editor/repo` |
 | Folder of ComfyUI | `COMFYUI_ROOT` in `.env` | `~/ComfyUI` |
-| Which missing prerequisites to install (uv, Blender, the fork) | | |
+| Which missing prerequisites to install (uv, Blender, yarn, git, the fork) | | |
 | ComfyUI: local (which tier), Comfy Cloud, or skip | `COMFY_MODE`, `COMFY_TIER` in `.env` | the tier your GPU fits |
+
+## The Editor fork
+
+The fork is cloned (branch `akira`) when the folder has no checkout yet; an existing checkout without dependencies is
+installed in place. The install follows AGENT.md's Windows steps (`yarn install --ignore-scripts`, `node postinstall.mjs`,
+`yarn postinstall` in `editor/`) with `NoDefaultCurrentDirectoryInExePath` cleared, plus `node node_modules/electron/install.js`,
+since `--ignore-scripts` also skips the download of the Electron app. It needs:
+
+- **yarn classic**: the fork's own scripts call `yarn`. Installed for the user with `npm install -g yarn@1.22.22` if missing.
+- **git**: for the clone and for `yarn install` (the lockfile has git dependencies). The copy bundled with GitHub Desktop
+  is used when git is not on PATH; otherwise it is installed with winget / brew.
+
+On Windows, `fork/build-editor.bat` and `fork/start-editor.bat` are copied to the checkout root and listed in its
+`.git/info/exclude`, so they never end up in a commit. `build-editor.bat` builds the editor (and `tools`/`cli` the first
+time; `build-editor.bat all` rebuilds everything), `start-editor.bat` starts it.
 
 No machine-specific path is hardcoded: a flag wins (`--fork-dir=<path>`, `--comfyui-dir=<path>`), then an environment
 variable, then the project's `.env`, then the question. Without a terminal to ask in (an agent or a script running it),

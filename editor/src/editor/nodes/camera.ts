@@ -1,5 +1,6 @@
-import { Node, FreeCamera, Scene, Vector3 } from "babylonjs";
+import { Node, FreeCamera, FreeCameraKeyboardMoveInput, FreeCameraMouseInput, Scene, Vector3 } from "babylonjs";
 import { EditorFreeCameraPanInput } from "./camera-pan-input";
+import { EditorFreeCameraUnityInput } from "./camera-unity-input";
 
 import { isDomTextInputFocused } from "../../tools/dom";
 
@@ -13,8 +14,13 @@ const DEFAULT_KEYS = {
 };
 
 export class EditorCamera extends FreeCamera {
+	private static readonly _minSpeed: number = 0.01;
+	private static readonly _maxSpeed: number = 1000;
+
 	private _savedSpeed: number | null = null;
 	private _panInput: EditorFreeCameraPanInput;
+	private _unityInput: EditorFreeCameraUnityInput;
+	private _unityControls: boolean = false;
 
 	private _isAttached: boolean = false;
 	private _isControlDown: boolean = false;
@@ -38,6 +44,10 @@ export class EditorCamera extends FreeCamera {
 		this.inputs.addMouseWheel();
 		this._panInput = new EditorFreeCameraPanInput();
 
+		this._unityInput = new EditorFreeCameraUnityInput();
+		this._unityInput.onFlyingChanged = (flying) => this._setFlyKeysActive(!this._unityControls || flying);
+		this._unityInput.onFlySpeedChanged = (factor) => this._scaleFlySpeed(factor);
+
 		window.addEventListener(
 			"keydown",
 			(this._keyboardDownListener = (ev) => {
@@ -52,7 +62,8 @@ export class EditorCamera extends FreeCamera {
 
 				if (this._savedSpeed === null) {
 					this._savedSpeed = this.speed;
-					this.speed *= 0.1;
+					// Shift slows the camera down by default and speeds it up with the Unity-style controls, like Unity does.
+					this.speed *= this._unityControls ? 3 : 0.1;
 				}
 			})
 		);
@@ -62,7 +73,7 @@ export class EditorCamera extends FreeCamera {
 			(this._keyboardUpListener = (ev) => {
 				if (!ev.ctrlKey && !ev.metaKey && this._isControlDown && this._isAttached) {
 					this._isControlDown = false;
-					return super.attachControl(this._noPreventDefault);
+					return this._attachInputs();
 				}
 
 				if (ev.key === "Shift" && this._savedSpeed !== null) {
@@ -74,18 +85,37 @@ export class EditorCamera extends FreeCamera {
 	}
 
 	/**
+	 * Scales the speed of the camera, used by the mouse wheel while flying. The speed boost of the Shift key is kept: what
+	 * the key releases back is scaled too.
+	 */
+	private _scaleFlySpeed(factor: number): void {
+		const scale = (speed: number): number => Math.min(EditorCamera._maxSpeed, Math.max(EditorCamera._minSpeed, speed * factor));
+
+		this.speed = scale(this.speed);
+		if (this._savedSpeed !== null) {
+			this._savedSpeed = scale(this._savedSpeed);
+		}
+	}
+
+	/**
 	 * Override attachControl to ensure pan input is attached
 	 */
 	public attachControl(noPreventDefault?: boolean): void {
 		this._isAttached = true;
 		this._noPreventDefault = noPreventDefault;
 
-		super.attachControl(noPreventDefault);
+		this._attachInputs();
+	}
+
+	private _attachInputs(): void {
+		super.attachControl(this._noPreventDefault);
 
 		// Add pan input after camera is attached
 		if (this._panInput && !this.inputs.attached.editorPan) {
 			this.inputs.add(this._panInput);
 		}
+
+		this._applyUnityControls();
 	}
 
 	public detachControl(): void {
@@ -101,6 +131,9 @@ export class EditorCamera extends FreeCamera {
 	public configureFromPreferences(): void {
 		try {
 			const keys = JSON.parse(localStorage.getItem("editor-camera-controls") as string);
+
+			this.unityControls = keys?.unityControls === true;
+
 			if (keys && keys.keysUp && keys.keysDown && keys.keysLeft && keys.keysRight && keys.keysUpward && keys.keysDownward) {
 				this.keysUp = keys.keysUp;
 				this.keysDown = keys.keysDown;
@@ -154,6 +187,69 @@ export class EditorCamera extends FreeCamera {
 	 */
 	public set panSensitivityMultiplier(value: number) {
 		this._panInput.panSensitivityMultiplier = value;
+	}
+
+	/**
+	 * Gets whether or not the Unity-style controls are enabled:
+	 * Alt + LMB orbits, Alt + RMB zooms, RMB enables the fly mode (the movement keys only work while it is held)
+	 * and Q / W / E / R / F select the tools and focus the selection.
+	 */
+	public get unityControls(): boolean {
+		return this._unityControls;
+	}
+
+	/**
+	 * Sets whether or not the Unity-style controls are enabled.
+	 */
+	public set unityControls(value: boolean) {
+		this._unityControls = value;
+		this._applyUnityControls();
+	}
+
+	/**
+	 * Gets whether or not the fly mode (right mouse button held with the Unity-style controls) is active.
+	 */
+	public get isFlying(): boolean {
+		return this._unityControls && this._unityInput.isFlying;
+	}
+
+	private _applyUnityControls(): void {
+		const attached = this.inputs.attached;
+
+		this._panInput.altLeftPans = !this._unityControls;
+
+		if (this._unityControls) {
+			if (!attached.editorUnity) {
+				this.inputs.add(this._unityInput);
+			}
+		} else if (attached.editorUnity) {
+			this.inputs.remove(this._unityInput);
+		}
+
+		// With the Unity-style controls only the right button looks around: the left button is used to select and orbit.
+		const mouse = attached.mouse as FreeCameraMouseInput | undefined;
+		if (mouse) {
+			mouse.buttons = this._unityControls ? [2] : [0, 1, 2];
+		}
+
+		this._setFlyKeysActive(!this._unityControls || this._unityInput.isFlying);
+	}
+
+	/**
+	 * Enables or disables the movement keys. They are only active while flying with the Unity-style controls,
+	 * so W / E / Q can be used as tool shortcuts the rest of the time.
+	 */
+	private _setFlyKeysActive(active: boolean): void {
+		const keyboard = this.inputs.attached.keyboard as FreeCameraKeyboardMoveInput | undefined;
+		if (!keyboard || !this._isAttached || this._isControlDown) {
+			return;
+		}
+
+		if (active) {
+			keyboard.attachControl(this._noPreventDefault);
+		} else {
+			keyboard.detachControl();
+		}
 	}
 
 	private _setDefaultKeys(): void {

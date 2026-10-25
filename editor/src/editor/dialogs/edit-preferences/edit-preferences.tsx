@@ -107,6 +107,24 @@ export class EditorEditPreferencesComponent extends Component<IEditorEditPrefere
 					<div className="flex flex-col gap-[10px]">
 						<Label className="text-xl font-[400]">Editor camera control</Label>
 
+						<div className="flex flex-col gap-[4px]">
+							<div className="flex items-center gap-2">
+								<Switch
+									checked={camera.unityControls}
+									onCheckedChange={(v) => {
+										camera.unityControls = v;
+										this._saveCameraControls();
+										this.forceUpdate();
+									}}
+								/>
+								Unity-style controls
+							</div>
+							<div className="text-sm text-muted-foreground">
+								Alt + Left Mouse: orbit. Alt + Right Mouse: zoom. Right Mouse: look around and fly with the keys below. Middle Mouse: pan. Q / W / E / R: select,
+								move, rotate, scale. F: focus the selection.
+							</div>
+						</div>
+
 						<EditorInspectorKeyField
 							value={camera.keysUp[0]?.toString() ?? ""}
 							label="Forward"
@@ -192,6 +210,7 @@ export class EditorEditPreferencesComponent extends Component<IEditorEditPrefere
 					keysUpward: camera.keysUpward,
 					keysDownward: camera.keysDownward,
 					panSensitivityMultiplier: camera.panSensitivityMultiplier,
+					unityControls: camera.unityControls,
 				})
 			);
 		} catch (e) {

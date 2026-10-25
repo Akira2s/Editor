@@ -27,7 +27,7 @@ import {
 	DropdownMenuTrigger,
 } from "../../ui/shadcn/ui/dropdown-menu";
 
-import { isWindows } from "../../tools/os";
+import { isDarwin, isWindows } from "../../tools/os";
 import { openSingleFileDialog } from "../../tools/dialog";
 import { execNodePty, NodePtyInstance } from "../../tools/node-pty";
 import {
@@ -60,6 +60,7 @@ import {
 	removeAntigravityPlugin,
 } from "./assistant/antigravity";
 import { installAssistantSkillsInProject } from "./assistant/skills";
+import { getAssistantTerminalClipboardAction } from "./assistant/terminal-clipboard";
 import {
 	getAssistantMcpServerScriptPath,
 	getAssistantPluginDirectory,
@@ -750,6 +751,47 @@ export class EditorAssistant extends Component<IEditorAssistantProps, IEditorAss
 			this._webglAddon = null;
 		}
 
+		// Agents turn on the mouse reporting of the terminal, which then sends the drags to the agent and selects nothing:
+		// force the selection of the terminal (what the Shift key does) so dragging always selects text. Without mouse
+		// reporting Shift extends the current selection instead, so the terminal selects by itself.
+		this._terminalContainer.addEventListener(
+			"mousedown",
+			(ev) => {
+				if ((ev.button === 0 || ev.button === 2) && !ev.shiftKey && terminal.modes.mouseTrackingMode !== "none") {
+					Object.defineProperty(ev, "shiftKey", { value: true });
+				}
+			},
+			true
+		);
+
+		// Right click copies the selection, or pastes when nothing is selected.
+		this._terminalContainer.addEventListener("contextmenu", (ev) => {
+			ev.preventDefault();
+
+			if (terminal.hasSelection()) {
+				this._copySelection();
+			} else {
+				this._pasteClipboard();
+			}
+		});
+
+		terminal.attachCustomKeyEventHandler((ev) => {
+			const action = getAssistantTerminalClipboardAction(ev, terminal.hasSelection(), isDarwin());
+			if (!action) {
+				return true;
+			}
+
+			ev.preventDefault();
+
+			if (action === "copy") {
+				this._copySelection();
+			} else {
+				this._pasteClipboard();
+			}
+
+			return false;
+		});
+
 		terminal.onData((data) => {
 			this._pty?.write(data);
 			this._setWorkState(getAssistantWorkStateAfterInput(this._workState, data));
@@ -796,6 +838,20 @@ export class EditorAssistant extends Component<IEditorAssistantProps, IEditorAss
 		this._fit();
 
 		return terminal;
+	}
+
+	private _copySelection(): void {
+		const selection = this._terminal?.getSelection();
+		if (selection) {
+			clipboard.writeText(selection);
+		}
+	}
+
+	private _pasteClipboard(): void {
+		const text = clipboard.readText();
+		if (text) {
+			this._terminal?.paste(text);
+		}
 	}
 
 	private _disposeTerminal(): void {

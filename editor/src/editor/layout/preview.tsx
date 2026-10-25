@@ -239,6 +239,8 @@ export class EditorPreview extends Component<IEditorPreviewProps, IEditorPreview
 		ipcRenderer.on("gizmo:scaling", () => this.setActiveGizmo("scaling"));
 
 		ipcRenderer.on("preview:focus", () => !isDomTextInputFocused() && this.focusObject());
+
+		document.addEventListener("keydown", (ev) => this._handleShortcutKeyDown(ev));
 		ipcRenderer.on("preview:edit-camera", () => this.props.editor.layout.inspector.setEditedObject(this.props.editor.layout.preview.scene.activeCamera));
 
 		ipcRenderer.on("preview:screenshot", (_, size) => saveSceneScreenshot(this.props.editor.layout.preview.scene, size));
@@ -744,7 +746,8 @@ export class EditorPreview extends Component<IEditorPreviewProps, IEditorPreview
 
 		this._restoreCurrentMeshUnderPointer();
 
-		if (event.button === 2 && this._objectUnderPointer) {
+		// With the Unity-style controls, holding the right button over an object flies the camera: the context menu only opens on a plain click.
+		if (event.button === 2 && this._objectUnderPointer && !this.camera.unityControls) {
 			this.scene.activeCamera?.inputs.detachElement();
 			this._handleMouseUp(event);
 		}
@@ -1227,6 +1230,34 @@ export class EditorPreview extends Component<IEditorPreviewProps, IEditorPreview
 
 		if (this._previewCamera === camera) {
 			this.setCameraPreviewActive(null);
+		}
+	}
+
+	/**
+	 * Handles the single-key tool shortcuts of the Unity-style controls:
+	 * Q: select (no gizmo), W: position, E: rotation, R: scaling, F: focus the selection.
+	 * They are ignored while typing, while a dialog is open or while the camera flies (the movement keys are in use then).
+	 */
+	private _handleShortcutKeyDown(ev: KeyboardEvent): void {
+		if (!this.camera?.unityControls || this.camera.isFlying || ev.repeat || ev.ctrlKey || ev.metaKey || ev.altKey || ev.shiftKey) {
+			return;
+		}
+
+		if (isDomTextInputFocused() || document.querySelector('[role="dialog"], [role="alertdialog"]')) {
+			return;
+		}
+
+		const gizmos = { q: "none", w: "position", e: "rotation", r: "scaling" } as const;
+		const key = ev.key.toLowerCase();
+
+		if (key === "f") {
+			this.focusObject();
+		} else if (key in gizmos) {
+			// Unlike the toolbar buttons, pressing the key of the active tool keeps it active.
+			const gizmo = gizmos[key as keyof typeof gizmos];
+			if (this.state.activeGizmo !== gizmo) {
+				this.setActiveGizmo(gizmo);
+			}
 		}
 	}
 

@@ -9,6 +9,7 @@ import packageJson from "../package.json" with { type: "json" };
 import { registerSceneTools } from "./tools/scene.mjs";
 import { registerNodeTools } from "./tools/nodes.mjs";
 import { registerMeshTools } from "./tools/meshes.mjs";
+import { registerPrefabTools } from "./tools/prefabs.mjs";
 import { registerDecalTools } from "./tools/decals.mjs";
 import { registerLightTools } from "./tools/lights.mjs";
 import { registerCameraTools } from "./tools/cameras.mjs";
@@ -128,6 +129,7 @@ server.registerTool(
 registerSceneTools(server);
 registerNodeTools(server);
 registerMeshTools(server);
+registerPrefabTools(server);
 registerDecalTools(server);
 registerLightTools(server);
 registerCameraTools(server);

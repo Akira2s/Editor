@@ -3,7 +3,7 @@ import { pathExists, readJSON, remove, stat, writeFile, writeJSON } from "fs-ext
 
 import filenamify from "filenamify";
 
-import { RenderTargetTexture, SceneSerializer, GaussianSplattingMesh } from "babylonjs";
+import { Node, RenderTargetTexture, SceneSerializer, GaussianSplattingMesh } from "babylonjs";
 
 import { Editor } from "../../editor/main";
 
@@ -70,7 +70,15 @@ export function ensureSceneFolders(scenePath: string) {
 	]);
 }
 
-export async function saveScene(editor: Editor, projectPath: string, scenePath: string): Promise<void> {
+export interface ISaveSceneOptions {
+	/**
+	 * Defines an optional filter: only the nodes (and what they hold: geometries, materials, skeletons, animations...) it
+	 * accepts are saved. Used to save a part of the scene as a scene asset (a prefab).
+	 */
+	filter?: (node: Node) => boolean;
+}
+
+export async function saveScene(editor: Editor, projectPath: string, scenePath: string, options?: ISaveSceneOptions): Promise<void> {
 	const fStat = await stat(scenePath);
 	if (!fStat.isDirectory()) {
 		return editor.layout.console.error("The scene path is not a directory.");
@@ -82,9 +90,12 @@ export async function saveScene(editor: Editor, projectPath: string, scenePath: 
 
 	await ensureSceneFolders(scenePath);
 
+	// Nodes that belong to a linked scene are saved by that scene, and the ones refused by the filter are not part of what is saved.
+	const isExcluded = (node: Node): boolean => isFromSceneLink(node) || (options?.filter ? !options.filter(node) : false);
+
 	const scene = editor.layout.preview.scene;
 	const meshesToSave = scene.meshes.filter((mesh) => {
-		if ((!isMesh(mesh) && !isCollisionMesh(mesh)) || mesh._masterMesh || isFromSceneLink(mesh) || !isNodeVisibleInGraph(mesh)) {
+		if ((!isMesh(mesh) && !isCollisionMesh(mesh)) || mesh._masterMesh || isExcluded(mesh) || !isNodeVisibleInGraph(mesh)) {
 			return false;
 		}
 
@@ -113,7 +124,7 @@ export async function saveScene(editor: Editor, projectPath: string, scenePath: 
 			if (
 				(!isMesh(mesh) && !isCollisionMesh(mesh)) ||
 				mesh._masterMesh ||
-				isFromSceneLink(mesh) ||
+				isExcluded(mesh) ||
 				!isNodeVisibleInGraph(mesh) ||
 				isGaussianSplattingPartProxyMesh(mesh) ||
 				isGaussianSplattingMesh(mesh) ||
@@ -317,7 +328,7 @@ export async function saveScene(editor: Editor, projectPath: string, scenePath: 
 
 	await Promise.all(
 		scene.meshes.map(async (mesh) => {
-			if (!isGaussianSplattingPartProxyMesh(mesh) || isFromSceneLink(mesh) || !mesh.baseGaussianSplattingMesh) {
+			if (!isGaussianSplattingPartProxyMesh(mesh) || isExcluded(mesh) || !mesh.baseGaussianSplattingMesh) {
 				return;
 			}
 
@@ -381,7 +392,7 @@ export async function saveScene(editor: Editor, projectPath: string, scenePath: 
 	// Write skeletons
 	await Promise.all(
 		scene.skeletons.map(async (skeleton) => {
-			const meshes = scene.meshes.filter((m) => m.skeleton === skeleton && !isFromSceneLink(m));
+			const meshes = scene.meshes.filter((m) => m.skeleton === skeleton && !isExcluded(m));
 			if (!meshes.length) {
 				return;
 			}
@@ -405,7 +416,7 @@ export async function saveScene(editor: Editor, projectPath: string, scenePath: 
 	// Write morph targets
 	await Promise.all(
 		scene.meshes.map(async (mesh) => {
-			if (!mesh.morphTargetManager || isFromSceneLink(mesh) || !isNodeVisibleInGraph(mesh)) {
+			if (!mesh.morphTargetManager || isExcluded(mesh) || !isNodeVisibleInGraph(mesh)) {
 				return;
 			}
 
@@ -454,7 +465,7 @@ export async function saveScene(editor: Editor, projectPath: string, scenePath: 
 	// Write transform nodes
 	await Promise.all(
 		scene.transformNodes.map(async (transformNode) => {
-			if (!isTransformNode(transformNode) || isFromSceneLink(transformNode)) {
+			if (!isTransformNode(transformNode) || isExcluded(transformNode)) {
 				return;
 			}
 
@@ -484,7 +495,7 @@ export async function saveScene(editor: Editor, projectPath: string, scenePath: 
 	// Write lights
 	await Promise.all(
 		scene.lights.concat(editor.layout.preview.clusteredLightContainer.lights).map(async (light) => {
-			if (isFromSceneLink(light) || isClusteredLightContainer(light)) {
+			if (isExcluded(light) || isClusteredLightContainer(light)) {
 				return;
 			}
 
@@ -532,7 +543,7 @@ export async function saveScene(editor: Editor, projectPath: string, scenePath: 
 	// Write cameras
 	await Promise.all(
 		scene.cameras.map(async (camera) => {
-			if (isEditorCamera(camera) || isFromSceneLink(camera)) {
+			if (isEditorCamera(camera) || isExcluded(camera)) {
 				return;
 			}
 
@@ -562,7 +573,7 @@ export async function saveScene(editor: Editor, projectPath: string, scenePath: 
 	// Write scene links
 	await Promise.all(
 		scene.transformNodes.map(async (transformNode) => {
-			if (!isSceneLinkNode(transformNode)) {
+			if (!isSceneLinkNode(transformNode) || (options?.filter && !options.filter(transformNode))) {
 				return;
 			}
 
@@ -634,7 +645,7 @@ export async function saveScene(editor: Editor, projectPath: string, scenePath: 
 	// Write sound nodes
 	await Promise.all(
 		scene.transformNodes.map(async (transformNode) => {
-			if (!isSoundNode(transformNode) || isFromSceneLink(transformNode)) {
+			if (!isSoundNode(transformNode) || isExcluded(transformNode)) {
 				return;
 			}
 
@@ -671,7 +682,11 @@ export async function saveScene(editor: Editor, projectPath: string, scenePath: 
 			const particleSystemPath = join(scenePath, "particleSystems", `${particleSystem.id}.json`);
 
 			const emitter = particleSystem.emitter;
-			if (emitter && isAnyTransformNode(emitter) && isFromSceneLink(emitter)) {
+			if (emitter && isAnyTransformNode(emitter) && isExcluded(emitter)) {
+				return;
+			}
+
+			if (options?.filter && !(emitter && isAnyTransformNode(emitter))) {
 				return;
 			}
 
@@ -700,7 +715,7 @@ export async function saveScene(editor: Editor, projectPath: string, scenePath: 
 	// Write node particle systems
 	await Promise.all(
 		scene.meshes.map(async (mesh) => {
-			if (!isNodeParticleSystemSetMesh(mesh) || isFromSceneLink(mesh)) {
+			if (!isNodeParticleSystemSetMesh(mesh) || isExcluded(mesh)) {
 				return;
 			}
 
@@ -734,6 +749,13 @@ export async function saveScene(editor: Editor, projectPath: string, scenePath: 
 				return;
 			}
 
+			if (
+				options?.filter &&
+				!animationGroup.targetedAnimations.some((targetedAnimation) => targetedAnimation.target instanceof Node && options.filter!(targetedAnimation.target))
+			) {
+				return;
+			}
+
 			const animationGroupPath = join(scenePath, "animationGroups", `${filenamify(animationGroup.name)}_${animationGroup.uniqueId}.json`);
 
 			try {
@@ -755,7 +777,7 @@ export async function saveScene(editor: Editor, projectPath: string, scenePath: 
 	// Write sprite maps
 	await Promise.all(
 		scene.transformNodes.map(async (transformNode) => {
-			if (!isSpriteMapNode(transformNode) || isFromSceneLink(transformNode)) {
+			if (!isSpriteMapNode(transformNode) || isExcluded(transformNode)) {
 				return;
 			}
 
@@ -785,7 +807,7 @@ export async function saveScene(editor: Editor, projectPath: string, scenePath: 
 	// Write sprite managers
 	await Promise.all(
 		scene.transformNodes.map(async (transformNode) => {
-			if (!isSpriteManagerNode(transformNode) || isFromSceneLink(transformNode)) {
+			if (!isSpriteManagerNode(transformNode) || isExcluded(transformNode)) {
 				return;
 			}
 

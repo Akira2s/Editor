@@ -1,10 +1,17 @@
+import { join, dirname } from "path/posix";
+import { ipcRenderer } from "electron";
+
 import { Component, ReactNode } from "react";
 
 import { AbstractMesh, Node, Observer, TransformNode, Sprite } from "babylonjs";
 
+import { Button } from "../../../ui/shadcn/ui/button";
+
 import { isTransformNode } from "../../../tools/guards/nodes";
 import { isSceneLinkNode } from "../../../tools/guards/scene";
 import { onNodeModifiedObservable } from "../../../tools/observables";
+
+import { projectConfiguration } from "../../../project/configuration";
 
 import { EditorInspectorStringField } from "./fields/string";
 import { EditorInspectorVectorField } from "./fields/vector";
@@ -35,6 +42,8 @@ export class EditorTransformNodeInspector extends Component<IEditorInspectorImpl
 	}
 
 	public render(): ReactNode {
+		const sceneLink = isSceneLinkNode(this.props.object) ? this.props.object : null;
+
 		return (
 			<>
 				<EditorInspectorSectionField title="Common">
@@ -45,6 +54,22 @@ export class EditorTransformNodeInspector extends Component<IEditorInspectorImpl
 						onChange={() => onNodeModifiedObservable.notifyObservers(this.props.object)}
 					/>
 				</EditorInspectorSectionField>
+
+				{sceneLink && (
+					<EditorInspectorSectionField title="Prefab">
+						<div className="flex items-center gap-2">
+							<div className="flex-1 min-w-0 text-sm truncate" title={sceneLink.relativePath ?? ""}>
+								{sceneLink.relativePath ?? "No scene linked"}
+							</div>
+							<Button variant="secondary" size="sm" disabled={!sceneLink.relativePath} onClick={() => this._openPrefab()}>
+								Open
+							</Button>
+							<Button variant="ghost" size="sm" disabled={!sceneLink.relativePath} onClick={() => sceneLink.reload()}>
+								Reload
+							</Button>
+						</div>
+					</EditorInspectorSectionField>
+				)}
 
 				<EditorInspectorSectionField title="Transforms">
 					<EditorInspectorVectorField label={<div className="w-14">Position</div>} object={this.props.object} property="position" />
@@ -70,6 +95,19 @@ export class EditorTransformNodeInspector extends Component<IEditorInspectorImpl
 				<CustomMetadataInspector object={this.props.object} />
 			</>
 		);
+	}
+
+	private _openPrefab(): void {
+		const relativePath = isSceneLinkNode(this.props.object) ? this.props.object.relativePath : null;
+		if (!relativePath || !projectConfiguration.path) {
+			return;
+		}
+
+		ipcRenderer.send("window:open", "build/src/editor/windows/scene", {
+			appPath: this.props.editor.path,
+			scenePath: join(dirname(projectConfiguration.path), relativePath),
+			projectPath: this.props.editor.state.projectPath,
+		});
 	}
 
 	private _gizmoObserver: Observer<Node | Sprite> | null = null;

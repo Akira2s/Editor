@@ -6,6 +6,8 @@ export * from "./loading/container/entries";
 
 export * from "./loading/script/apply";
 export * from "./loading/script/preload";
+export * from "./loading/script/scene-links";
+export * from "./loading/script/scene-link-path";
 
 export * from "./tools/guards";
 export * from "./tools/texture";

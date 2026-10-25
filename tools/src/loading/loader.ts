@@ -18,6 +18,7 @@ import { applyRenderingConfigurations } from "./rendering";
 
 import { _applyScriptsForObject } from "./script/apply";
 import { _preloadScriptsAssets } from "./script/preload";
+import { _instantiateSceneLinks } from "./script/scene-links";
 
 import { registerMeshParser } from "./mesh";
 import { registerAudioParser } from "./sound";
@@ -184,6 +185,9 @@ export async function loadScene(rootUrl: string, sceneFilename: string, scene: S
 		do {
 			loadedAssetsCount = await _preloadScriptsAssets(rootUrl, scene, scriptsMap);
 		} while (loadedAssetsCount !== 0 && !scene.isDisposed);
+
+		// Scenes linked in the editor (prefab instances) are now loaded: instantiate them.
+		await _instantiateSceneLinks(scene);
 	}
 
 	// Ensure all meshes perform their delay state check

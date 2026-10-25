@@ -33,11 +33,13 @@ import { getSpriteCommands } from "../../dialogs/command-palette/sprite";
 
 import { registerUndoRedo } from "../../../tools/undoredo";
 
-import { createPrefabFromNodes, getPrefabRoots } from "../../../tools/scene/prefab";
+import { applyOverridesToPrefab, createPrefabFromNodes, getPrefabRoots, openPrefab, revealPrefab, unpackSceneLink } from "../../../tools/scene/prefab";
+import { getRootSceneLink, isSceneLinkContent } from "../../../tools/scene/scene-link";
+import { SceneLinkNode } from "../../nodes/scene-link";
 import { waitNextAnimationFrame } from "../../../tools/tools";
 import { isClusteredLight } from "../../../tools/light/cluster";
 import { createMeshInstance } from "../../../tools/mesh/instance";
-import { onNodesAddedObservable } from "../../../tools/observables";
+import { onNodeModifiedObservable, onNodesAddedObservable } from "../../../tools/observables";
 import { isAnyParticleSystem } from "../../../tools/guards/particles";
 import { isScene, isSceneLinkNode } from "../../../tools/guards/scene";
 import { cloneNode, ICloneNodeOptions } from "../../../tools/node/clone";
@@ -81,6 +83,10 @@ export class EditorGraphContextMenu extends Component<IEditorGraphContextMenuPro
 	}
 
 	public render(): ReactNode {
+		if (this.props.object && isNode(this.props.object) && isSceneLinkContent(this.props.object)) {
+			return this._getPrefabContentMenu(this.props.object);
+		}
+
 		const parent = this.props.object && isScene(this.props.object) ? undefined : this.props.object;
 
 		return (
@@ -99,6 +105,8 @@ export class EditorGraphContextMenu extends Component<IEditorGraphContextMenuPro
 
 							{!isScene(this.props.object) && !isClusteredLightContainer(this.props.object) && (
 								<>
+									{isSceneLinkNode(this.props.object) && this._getPrefabInstanceItems(this.props.object as SceneLinkNode)}
+
 									<ContextMenuItem onClick={() => this._cloneNode(this.props.object)}>Clone</ContextMenuItem>
 
 									{isNode(this.props.object) && <ContextMenuItem onClick={() => this._createPrefab(this.props.object)}>Create Prefab...</ContextMenuItem>}
@@ -412,6 +420,74 @@ export class EditorGraphContextMenu extends Component<IEditorGraphContextMenuPro
 		});
 	}
 
+	private _refreshAfterPrefabChange(nodes: Node[] = []): void {
+		nodes.forEach((n) => onNodeModifiedObservable.notifyObservers(n));
+
+		this.props.editor.layout.graph.refresh();
+		this.props.editor.layout.inspector.forceUpdate();
+	}
+
+	/**
+	 * The items of a prefab instance: edit or find the prefab, turn the instance into plain nodes, and deal with what it overrides.
+	 */
+	private _getPrefabInstanceItems(link: SceneLinkNode): ReactNode {
+		const overridden = Object.keys(link.getOverrides()).length > 0;
+
+		return (
+			<>
+				<ContextMenuItem onClick={() => openPrefab(this.props.editor, link)}>Open Prefab</ContextMenuItem>
+				<ContextMenuItem onClick={() => revealPrefab(this.props.editor, link)}>Show Prefab in Assets</ContextMenuItem>
+				<ContextMenuItem
+					onClick={() => {
+						unpackSceneLink(this.props.editor, link);
+					}}
+				>
+					Unpack Prefab
+				</ContextMenuItem>
+				<ContextMenuItem disabled={!overridden} onClick={() => this._refreshAfterPrefabChange(link.revertOverrides())}>
+					Revert All Overrides
+				</ContextMenuItem>
+				<ContextMenuItem disabled={!overridden} onClick={() => applyOverridesToPrefab(this.props.editor, link).then(() => this._refreshAfterPrefabChange())}>
+					Apply All Overrides to Prefab
+				</ContextMenuItem>
+				<ContextMenuSeparator />
+			</>
+		);
+	}
+
+	/**
+	 * The menu of a node of a prefab shown by an instance: it belongs to the prefab, so it can only be overridden, reverted or applied.
+	 */
+	private _getPrefabContentMenu(node: Node): ReactNode {
+		const link = getRootSceneLink(node) as SceneLinkNode | null;
+		const overridden = !!link?.getNodeOverride(node);
+
+		return (
+			<ContextMenu onOpenChange={(o) => this._handleContextMenuOpenChange(o)}>
+				<ContextMenuTrigger className="w-full h-full">{this.props.children}</ContextMenuTrigger>
+
+				<ContextMenuContent className="w-48">
+					<ContextMenuItem disabled={!link} onClick={() => link && this.props.editor.layout.graph.setSelectedNode(link)}>
+						Select Prefab Instance
+					</ContextMenuItem>
+					<ContextMenuItem disabled={!link} onClick={() => link && openPrefab(this.props.editor, link)}>
+						Open Prefab
+					</ContextMenuItem>
+					<ContextMenuSeparator />
+					<ContextMenuItem disabled={!overridden} onClick={() => link && this._refreshAfterPrefabChange(link.revertOverrides(node))}>
+						Revert Overrides
+					</ContextMenuItem>
+					<ContextMenuItem
+						disabled={!overridden}
+						onClick={() => link && applyOverridesToPrefab(this.props.editor, link, node).then(() => this._refreshAfterPrefabChange())}
+					>
+						Apply to Prefab
+					</ContextMenuItem>
+				</ContextMenuContent>
+			</ContextMenu>
+		);
+	}
+
 	/**
 	 * Saves the selected nodes (the one under the cursor when it is not selected) as a prefab, a scene asset replacing them in the scene
 	 * with a link to it.
@@ -420,7 +496,7 @@ export class EditorGraphContextMenu extends Component<IEditorGraphContextMenuPro
 		const selected = this.props.editor.layout.graph
 			.getSelectedNodes()
 			.map((n) => n.nodeData)
-			.filter((n): n is Node => isNode(n));
+			.filter((n): n is Node => !!n && isNode(n));
 
 		const nodes = selected.includes(node) ? selected : [node];
 		if (!getPrefabRoots(nodes).length) {

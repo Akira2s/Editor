@@ -3,9 +3,12 @@ import { pathExists } from "fs-extra";
 
 import { Node, Quaternion, Scene, TransformNode } from "babylonjs";
 
+import { SceneLinkNode } from "../../editor/nodes/scene-link";
+
 import { normalizedGlob } from "../../tools/fs";
 import { isSceneLinkNode } from "../../tools/guards/scene";
-import { createPrefabFromNodes, defaultPrefabsDirectory } from "../../tools/scene/prefab";
+import { applyOverridesToPrefab, createPrefabFromNodes, defaultPrefabsDirectory, unpackSceneLink } from "../../tools/scene/prefab";
+import { applyPrefabNodeOverride, getPrefabOverrideProperties, IPrefabNodeOverride } from "../../tools/scene/prefab-overrides";
 import { createSceneLink } from "../../tools/scene/scene-link";
 
 import { projectConfiguration } from "../../project/configuration";
@@ -65,6 +68,117 @@ export async function createPrefab(scene: Scene, data: any, options: IMCPActionO
 		link: toNodeSummary(result.link),
 		note: "The nodes now live in the prefab. Save the scene (the user confirms) to keep the link; attach scripts to the prefab's nodes by opening it.",
 	};
+}
+
+function resolveLink(scene: Scene, data: any): SceneLinkNode {
+	const node = resolveNode({ scene, nodeId: data.linkId, nodeName: data.linkName });
+	if (!isSceneLinkNode(node)) {
+		throw new Error(`"${node.name}" is not a prefab instance (a scene link).`);
+	}
+
+	return node;
+}
+
+/**
+ * Finds a node of the prefab an instance shows, by its id in the prefab or by its name.
+ */
+function resolvePrefabNode(link: SceneLinkNode, data: any): Node {
+	const nodes = link.getPrefabNodes();
+	const node = nodes.find((n) => (data.nodeId && n.id === data.nodeId) || (!data.nodeId && data.nodeName && n.name === data.nodeName));
+
+	if (!node) {
+		throw new Error(`Node not found in the prefab of "${link.name}": ${data.nodeId ?? data.nodeName}. Nodes: ${nodes.map((n) => `${n.name} (${n.id})`).join(", ")}`);
+	}
+
+	return node;
+}
+
+function summarizeOverrides(link: SceneLinkNode): any[] {
+	return Object.entries(link.getOverrides()).map(([id, override]) => ({
+		nodeId: id,
+		nodeName: link.getPrefabNodes().find((n) => n.id === id)?.name ?? null,
+		properties: getPrefabOverrideProperties(override),
+		override,
+	}));
+}
+
+/**
+ * Describes a prefab instance: the prefab it shows, the nodes of the prefab, and what the instance overrides.
+ */
+export function getPrefabInstance(scene: Scene, data: any): any {
+	const link = resolveLink(scene, data);
+
+	return {
+		link: toNodeSummary(link),
+		prefab: link.relativePath,
+		nodes: link.getPrefabNodes().map((node) => ({ id: node.id, name: node.name, className: node.getClassName() })),
+		overrides: summarizeOverrides(link),
+	};
+}
+
+/**
+ * Changes a node of the prefab in one instance only (an override): the prefab and the other instances keep their values.
+ */
+export function setPrefabOverride(scene: Scene, data: any): any {
+	const link = resolveLink(scene, data);
+	const node = resolvePrefabNode(link, data);
+
+	const override: IPrefabNodeOverride = {};
+	if (data.position) {
+		override.position = toVector3(data.position).asArray();
+	}
+
+	if (data.rotation) {
+		override.rotation = toVector3(data.rotation).asArray();
+	}
+
+	if (data.scaling) {
+		override.scaling = toVector3(data.scaling).asArray();
+	}
+
+	if (typeof data.isEnabled === "boolean") {
+		override.isEnabled = data.isEnabled;
+	}
+
+	if (typeof data.isVisible === "boolean") {
+		override.isVisible = data.isVisible;
+	}
+
+	applyPrefabNodeOverride(node, override);
+
+	return { overrides: summarizeOverrides(link) };
+}
+
+/**
+ * Puts a node of the prefab (or all of them) back as the prefab defines it in one instance.
+ */
+export function revertPrefabOverrides(scene: Scene, data: any): any {
+	const link = resolveLink(scene, data);
+
+	const reverted = link.revertOverrides(data.nodeId || data.nodeName ? resolvePrefabNode(link, data) : undefined);
+
+	return { reverted: reverted.map((node) => node.name), overrides: summarizeOverrides(link) };
+}
+
+/**
+ * Writes what an instance overrides in the prefab itself, so every instance gets it.
+ */
+export async function applyPrefabOverrides(scene: Scene, data: any, options: IMCPActionOptions): Promise<any> {
+	const link = resolveLink(scene, data);
+
+	const applied = await applyOverridesToPrefab(options.editor, link, data.nodeId || data.nodeName ? resolvePrefabNode(link, data) : undefined);
+
+	return { applied, prefab: link.relativePath };
+}
+
+/**
+ * Turns an instance into plain nodes, not connected to the prefab anymore.
+ */
+export function unpackPrefab(scene: Scene, data: any, options: IMCPActionOptions): any {
+	const link = resolveLink(scene, data);
+	const group = unpackSceneLink(options.editor, link);
+
+	return { group: toNodeSummary(group), children: group.getChildren().map((child) => toNodeSummary(child)) };
 }
 
 /**

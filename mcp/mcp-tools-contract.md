@@ -174,6 +174,13 @@ A prefab is a scene asset (`assets/prefabs/<Name>.scene`) holding a root node, i
 | `list_prefabs` | List the scene assets (`.scene`) of the project. | `{}` | `{ prefabs: [{ name, path }] }` |
 | `create_prefab` | Save nodes (with their descendants) as a prefab and replace them in the scene with a link to it, like "Create Prefab..." in the graph. Several nodes are grouped under a new root. The prefab is saved at the origin; the link takes the place of the nodes. | `{ name: string, nodeIds?: string[], nodeNames?: string[], nodeId?, nodeName?, directory?: string (default `assets/prefabs`) }` | `{ prefab, link: NodeSummary, note }` |
 | `instantiate_prefab` | Place an instance (scene link) of a prefab in the scene. | `{ prefab: string (path or name), name?, position?, rotation?, scaling?, parentId?, parentName? }` | `{ prefab, link: NodeSummary }` |
+| `get_prefab_instance` | Describe an instance: its prefab, the nodes of the prefab (id, name) and what the instance overrides. | `{ linkId?, linkName? }` | `{ link, prefab, nodes: [{ id, name, className }], overrides: [{ nodeId, nodeName, properties, override }] }` |
+| `set_prefab_override` | Change a node of the prefab in one instance only (a per-instance override). | `{ linkId?, linkName?, nodeId?, nodeName?, position?, rotation?, scaling?, isEnabled?, isVisible? }` | `{ overrides }` |
+| `revert_prefab_overrides` | Put a node (or all of them) back as the prefab defines it in one instance. | `{ linkId?, linkName?, nodeId?, nodeName? }` | `{ reverted: string[], overrides }` |
+| `apply_prefab_overrides` | Write the overrides of an instance in the prefab asset (every instance gets them). | `{ linkId?, linkName?, nodeId?, nodeName? }` | `{ applied: number, prefab }` |
+| `unpack_prefab` | Turn an instance into plain nodes, disconnected from the prefab. | `{ linkId?, linkName? }` | `{ group: NodeSummary, children: NodeSummary[] }` |
+
+Overrides cover the position, rotation, scaling, enabled and visible state of the nodes of the prefab and the Inspector values of their scripts; they are stored in the metadata of the scene link (`metadata.overrides`, keyed by the id the node has in the prefab) and applied by the runtime when it instantiates the prefab.
 
 ### Marketplace (must be visible in editor — spec §marketplace, §important notes)
 

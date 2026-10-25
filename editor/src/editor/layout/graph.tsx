@@ -40,6 +40,7 @@ import { isSoundNode } from "../../tools/guards/sound";
 import { registerUndoRedo } from "../../tools/undoredo";
 import { isDomTextInputFocused } from "../../tools/dom";
 import { isSceneLinkNode } from "../../tools/guards/scene";
+import { createSceneLink, isSceneLinkContent } from "../../tools/scene/scene-link";
 import { updateAllLights } from "../../tools/light/shadows";
 import { isClusteredLight } from "../../tools/light/cluster";
 import { getCollisionMeshFor } from "../../tools/mesh/collision";
@@ -1187,7 +1188,8 @@ export class EditorGraph extends Component<IEditorGraphProps, IEditorGraphState>
 			label: this._getNodeLabelComponent(node, node.name),
 		} as TreeNodeInfo;
 
-		if (!isSceneLinkNode(node) && !noChildren) {
+		// An instance of a prefab shows the nodes of the prefab (the ones of a prefab inside a prefab stay hidden).
+		if ((!isSceneLinkNode(node) || !isSceneLinkContent(node)) && !noChildren) {
 			const children = node.getDescendants(true);
 
 			if (children.length) {
@@ -1400,6 +1402,12 @@ export class EditorGraph extends Component<IEditorGraphProps, IEditorGraphState>
 					case ".wave":
 						applySoundAsset(this.props.editor, this.props.editor.layout.preview.scene, absolutePath).then(() => {
 							this.props.editor.layout.graph.refresh();
+						});
+						break;
+
+					case ".scene":
+						createSceneLink(this.props.editor, absolutePath).then(() => {
+							this.props.editor.layout.preview.setRenderScene(true);
 						});
 						break;
 				}

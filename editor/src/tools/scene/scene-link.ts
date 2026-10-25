@@ -42,6 +42,13 @@ export function isFromSceneLink(node: Node) {
 }
 
 /**
+ * Returns whether or not the given node is part of what a scene link shows (a node of the prefab), the link itself not being.
+ */
+export function isSceneLinkContent(node: Node): boolean {
+	return node.parent ? isFromSceneLink(node.parent) : false;
+}
+
+/**
  * Returns whether or not the given animation group comes from a SceneLinkNode instance.
  */
 export function isAnimationGroupFromSceneLink(animationGroup: AnimationGroup) {

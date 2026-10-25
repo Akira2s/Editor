@@ -1,5 +1,5 @@
 import { clipboard, webUtils } from "electron";
-import { dirname, join, extname, basename } from "path/posix";
+import { dirname, join, extname, basename, relative } from "path/posix";
 import { copyFile, copy, mkdir, move, pathExists, readdir, stat, writeFile, writeJSON } from "fs-extra";
 
 import filenamify from "filenamify";
@@ -33,6 +33,7 @@ import { execNodePty } from "../../tools/node-pty";
 import { clearUndoRedo } from "../../tools/undoredo";
 import { isTexture } from "../../tools/guards/texture";
 import { renameScene } from "../../tools/scene/rename";
+import { createPrefabFromNodes } from "../../tools/scene/prefab";
 import { isSoundNode } from "../../tools/guards/sound";
 import { openMultipleFilesDialog } from "../../tools/dialog";
 import { onSelectedAssetChanged } from "../../tools/observables";
@@ -576,6 +577,14 @@ export class EditorAssetsBrowser extends Component<IEditorAssetsBrowserProps, IE
 	}
 
 	/**
+	 * Browses the folder of the given file and selects it.
+	 */
+	public async revealFile(absolutePath: string): Promise<void> {
+		await this.setBrowsePath(dirname(absolutePath));
+		this.setSelectedFile(absolutePath);
+	}
+
+	/**
 	 * Sets the selected file. This will clear the current selection and select the specified file.
 	 */
 	public setSelectedFile(absolutePath: string): void {
@@ -1005,7 +1014,7 @@ export class EditorAssetsBrowser extends Component<IEditorAssetsBrowserProps, IE
 		try {
 			const data = JSON.parse(event.dataTransfer.getData("graph/node")) as string[];
 			if (data?.length) {
-				return this._handleDroppedNodesFromGraph(data);
+				return this._handleDroppedNodesFromGraph(data, event.altKey);
 			}
 		} catch (e) {
 			// Catch silently.
@@ -1065,13 +1074,43 @@ export class EditorAssetsBrowser extends Component<IEditorAssetsBrowserProps, IE
 		this.refresh();
 	}
 
-	private async _handleDroppedNodesFromGraph(nodeIds: string[]): Promise<void> {
-		if (!this.state.browsedPath || !this.props.editor.state.enableExperimentalFeatures) {
+	/**
+	 * Nodes dropped from the graph become prefabs (a scene asset each) in the browsed folder. With Alt, they are exported as a .babylon
+	 * file instead (experimental).
+	 */
+	private async _handleDroppedNodesFromGraph(nodeIds: string[], exportAsBabylon: boolean): Promise<void> {
+		if (!this.state.browsedPath) {
 			return;
 		}
 
 		if (!this.isAssetsFolder()) {
-			showAlert("Warning", <div>You can only export nodes to at least in the root "assets" folder.</div>, true);
+			showAlert("Warning", <div>You can only save nodes in at least the root "assets" folder.</div>, true);
+			return;
+		}
+
+		if (!exportAsBabylon) {
+			const projectDirectory = dirname(projectConfiguration.path!);
+
+			for (const nodeId of nodeIds) {
+				const node = this.props.editor.layout.preview.scene.getNodeById(nodeId);
+				if (!node || node.isDisposed()) {
+					continue;
+				}
+
+				try {
+					await createPrefabFromNodes(this.props.editor, [node], node.name, relative(projectDirectory, this.state.browsedPath));
+				} catch (e) {
+					const message = e instanceof Error ? e.message : String(e);
+
+					this.props.editor.layout.console.error(`Failed to create the prefab "${node.name}": ${message}`);
+					toast.error(`Failed to create the prefab "${node.name}": ${message}`);
+				}
+			}
+
+			return this.refresh();
+		}
+
+		if (!this.props.editor.state.enableExperimentalFeatures) {
 			return;
 		}
 

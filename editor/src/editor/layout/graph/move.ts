@@ -1,6 +1,9 @@
 import { TransformNode, AbstractMesh, Node } from "babylonjs";
 
-import { isScene } from "../../../tools/guards/scene";
+import { toast } from "sonner";
+
+import { isScene, isSceneLinkNode } from "../../../tools/guards/scene";
+import { isSceneLinkContent } from "../../../tools/scene/scene-link";
 import { registerUndoRedo } from "../../../tools/undoredo";
 import { isClusteredLight } from "../../../tools/light/cluster";
 import { isAnyParticleSystem } from "../../../tools/guards/particles";
@@ -10,8 +13,12 @@ import { applyNodeParentingConfiguration, applyTransformNodeParentingConfigurati
 import { Editor } from "../../main";
 
 export function setNewParentForGraphSelectedNodes(editor: Editor, newParent: any, shift: boolean) {
+	if (newParent && isNode(newParent) && (isSceneLinkNode(newParent) || isSceneLinkContent(newParent))) {
+		return void toast.error("Nodes can't be moved into a prefab instance: edit the prefab.");
+	}
+
 	const oldHierarchyMap = new Map<unknown, unknown>();
-	const nodesToMove = editor.layout.graph.getSelectedNodes();
+	const nodesToMove = editor.layout.graph.getSelectedNodes().filter((n) => !(n.nodeData && isNode(n.nodeData) && isSceneLinkContent(n.nodeData)));
 	const clusteredLightContainer = editor.layout.preview.clusteredLightContainer;
 
 	nodesToMove.forEach((n) => {

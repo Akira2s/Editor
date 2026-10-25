@@ -1,18 +1,25 @@
 import { join, dirname } from "path/posix";
 import { mkdir } from "fs-extra";
+import { ipcRenderer } from "electron";
 
-import { Node, Quaternion, Tools, TransformNode, Vector3 } from "babylonjs";
+import { AbstractMesh, InstancedMesh, Mesh, Node, Quaternion, Tools, TransformNode, Vector3 } from "babylonjs";
 
 import { Editor } from "../../editor/main";
+import { SceneLinkNode } from "../../editor/nodes/scene-link";
 
 import { projectConfiguration } from "../../project/configuration";
 import { saveScene } from "../../project/save/scene";
 
 import { findAvailableFilename } from "../fs";
+import { registerUndoRedo } from "../undoredo";
 import { UniqueNumber } from "../tools";
-import { isAnyTransformNode, isClusteredLightContainer, isEditorCamera } from "../guards/nodes";
+import { isSceneLinkNode } from "../guards/scene";
+import { isClusteredLightContainer, isEditorCamera } from "../guards/nodes";
 
+import { writeOverridesInPrefab } from "./prefab-apply";
 import { createSceneLink, isFromSceneLink } from "./scene-link";
+
+import { reloadSceneLinks } from "../../editor/layout/assets-browser/events/scene";
 
 /**
  * Defines the folder, relative to the project, where the prefabs are created.
@@ -53,7 +60,7 @@ export function getPrefabName(name: string): string {
  * @param nodes defines the selected nodes.
  */
 export function getPrefabRoots(nodes: Node[]): Node[] {
-	const candidates = nodes.filter((node) => !isEditorCamera(node) && !isClusteredLightContainer(node) && (!isFromSceneLink(node) || isSceneLinkRoot(node)));
+	const candidates = nodes.filter((node) => !isEditorCamera(node) && !isClusteredLightContainer(node) && (!isFromSceneLink(node) || isSceneLinkNode(node)));
 	const set = new Set<Node>(candidates);
 
 	return candidates.filter((node) => {
@@ -68,16 +75,50 @@ export function getPrefabRoots(nodes: Node[]): Node[] {
 }
 
 /**
- * A scene link itself can be part of a prefab (a prefab made of prefabs), its content can't.
+ * Returns what prevents the given nodes from being saved together as a prefab, or null when they can. A mesh is saved with its
+ * instances, and an instance is saved with its source mesh: both must be in the prefab, else the prefab would hold extra nodes
+ * or the scene would lose instances when the nodes are removed from it.
+ * @param included defines the nodes that would be saved in the prefab (the roots and their descendants).
  */
-function isSceneLinkRoot(node: Node): boolean {
-	return node.getClassName() === "SceneLinkNode";
+export function getPrefabSelectionProblem(included: Set<Node>): string | null {
+	for (const node of included) {
+		if (node instanceof Mesh) {
+			const outside = node.instances.filter((instance) => !included.has(instance));
+			if (outside.length) {
+				return `"${node.name}" has instances outside the selection (${outside
+					.slice(0, 3)
+					.map((instance) => `"${instance.name}"`)
+					.join(", ")}${outside.length > 3 ? "..." : ""}). Select them too, or make the prefab from the instances' source mesh together with them.`;
+			}
+		}
+
+		if (node instanceof InstancedMesh && !included.has(node.sourceMesh)) {
+			return `"${node.name}" is an instance of "${node.sourceMesh.name}", which is not in the selection. Select the source mesh too.`;
+		}
+	}
+
+	return null;
+}
+
+function getAllNodes(root: Node): Node[] {
+	return [root, ...root.getDescendants(false)];
+}
+
+function getLocalRotation(node: Node): Quaternion {
+	const transformNode = node as TransformNode;
+	if (transformNode.rotationQuaternion) {
+		return transformNode.rotationQuaternion.clone();
+	}
+
+	const rotation = transformNode.rotation ?? Vector3.Zero();
+	return Quaternion.FromEulerAngles(rotation.x, rotation.y, rotation.z);
 }
 
 /**
  * Saves the given nodes (with their descendants) as a scene asset in the prefabs folder of the project, and replaces them in the
  * scene with a link to it. The link takes the place and orientation of the nodes: a prefab is saved at the origin.
  * The nodes are removed from the scene once saved: they live in the prefab, and every instance of it is a link.
+ * The creation can be undone: the nodes come back from the prefab (the asset stays on disk).
  * @param editor defines the reference to the editor.
  * @param nodes defines the nodes to make the prefab of. When they are several roots, a group holding them is created.
  * @param name defines the name of the prefab.
@@ -91,6 +132,11 @@ export async function createPrefabFromNodes(editor: Editor, nodes: Node[], name:
 	const roots = getPrefabRoots(nodes);
 	if (!roots.length) {
 		throw new Error("Select at least one node that can be part of a prefab.");
+	}
+
+	const problem = getPrefabSelectionProblem(new Set(roots.flatMap((root) => getAllNodes(root))));
+	if (problem) {
+		throw new Error(problem);
 	}
 
 	const projectDirectory = dirname(projectConfiguration.path);
@@ -108,7 +154,7 @@ export async function createPrefabFromNodes(editor: Editor, nodes: Node[], name:
 	let root = roots[0];
 
 	// Several roots (or a root that has no transform, like a light) are grouped under a node placed in the middle of them.
-	if (roots.length > 1 || !isAnyTransformNode(roots[0])) {
+	if (roots.length > 1 || !(roots[0] instanceof TransformNode)) {
 		const center = roots.reduce((sum, node) => sum.addInPlace(getWorldPosition(node)), Vector3.Zero()).scaleInPlace(1 / roots.length);
 
 		const group = new TransformNode(prefabName, scene);
@@ -123,23 +169,23 @@ export async function createPrefabFromNodes(editor: Editor, nodes: Node[], name:
 		root = group;
 	}
 
-	const included = new Set<Node>([root, ...root.getDescendants(false)]);
+	const included = new Set<Node>(getAllNodes(root));
 
 	// What takes the place of the prefab in the scene.
 	const parent = root.parent;
-	const position = ((root as TransformNode).position ?? Vector3.Zero()).clone();
-	const rotation = getRotationQuaternion(root);
+	const rootTransform = root as TransformNode;
+	const position = rootTransform.position.clone();
+	const rotation = getLocalRotation(root);
 
 	// The prefab is saved at the origin: the transform of its root is the one of the link.
-	const rootTransform = root as TransformNode;
 	const savedRotation = rootTransform.rotationQuaternion?.clone() ?? null;
-	const savedEuler = rootTransform.rotation?.clone();
+	const savedEuler = rootTransform.rotation.clone();
 
 	await mkdir(absolutePath);
 
 	try {
 		root.parent = null;
-		rootTransform.position?.set(0, 0, 0);
+		rootTransform.position.set(0, 0, 0);
 		rootTransform.rotationQuaternion = Quaternion.Identity();
 
 		await saveScene(editor, projectDirectory, absolutePath, {
@@ -147,41 +193,211 @@ export async function createPrefabFromNodes(editor: Editor, nodes: Node[], name:
 		});
 	} finally {
 		root.parent = parent;
-		rootTransform.position?.copyFrom(position);
+		rootTransform.position.copyFrom(position);
 		rootTransform.rotationQuaternion = savedRotation;
-		rootTransform.rotation?.copyFrom(savedEuler ?? Vector3.Zero());
+		rootTransform.rotation.copyFrom(savedEuler);
 	}
+
+	const placement: IPrefabPlacement = { name: prefabName, parent, position, rotation };
+
+	let current = await replaceWithLink(editor, root, absolutePath, placement);
+
+	registerUndoRedo({
+		executeRedo: false,
+		undo: () => {
+			const restored = restoreFromLink(editor, current.link, parent, position, rotation);
+			root = restored[0];
+		},
+		redo: () => {
+			void replaceWithLink(editor, root, absolutePath, placement).then((result) => (current = result));
+		},
+	});
+
+	return { absolutePath, relativePath, link: current.link };
+}
+
+/**
+ * Defines where the instance of a prefab goes in the scene.
+ */
+interface IPrefabPlacement {
+	name: string;
+	parent: Node | null;
+	position: Vector3;
+	rotation: Quaternion;
+}
+
+async function replaceWithLink(editor: Editor, root: Node, absolutePath: string, placement: IPrefabPlacement): Promise<{ link: SceneLinkNode }> {
+	const { name, parent, position, rotation } = placement;
 
 	// The nodes leave the scene before the link loads the prefab: both would share the same unique ids.
 	root.dispose(false, false);
 
-	const link = (await createSceneLink(editor, absolutePath)) as TransformNode;
-	link.name = prefabName;
+	const link = (await createSceneLink(editor, absolutePath)) as SceneLinkNode;
+	link.name = name;
 	link.parent = parent;
 	link.position.copyFrom(position);
-	link.rotationQuaternion = rotation;
+	link.rotationQuaternion = rotation.clone();
 
 	editor.layout.graph.refresh();
 	editor.layout.assets.refresh();
 	editor.layout.inspector.setEditedObject(link);
 
-	return { absolutePath, relativePath, link };
+	return { link };
+}
+
+/**
+ * Takes the content of a link out of it, as nodes of the scene at the place of the link, and removes the link. Used by the undo of the
+ * creation of a prefab: the nodes come back as they were (they keep their ids).
+ */
+function restoreFromLink(editor: Editor, link: SceneLinkNode, parent: Node | null, position: Vector3, rotation: Quaternion): Node[] {
+	link.releaseContent();
+
+	const roots = link.getChildren().slice();
+	roots.forEach((node) => {
+		node.parent = parent;
+
+		const transformNode = node as TransformNode;
+		if (transformNode.position) {
+			transformNode.position.copyFrom(position);
+			transformNode.rotationQuaternion = rotation.clone();
+		}
+	});
+
+	link.dispose();
+
+	editor.layout.graph.refresh();
+	if (roots.length) {
+		editor.layout.graph.setSelectedNode(roots[0]);
+	}
+
+	return roots;
+}
+
+/**
+ * Turns a prefab instance into plain nodes of the scene (Unity's "Unpack Prefab"): the content of the link, with what the instance
+ * overrides, is kept as the children of a group that replaces the link, and is not connected to the prefab anymore.
+ * @param editor defines the reference to the editor.
+ * @param link defines the scene link to unpack.
+ * @returns the group that holds the nodes of the prefab.
+ */
+export function unpackSceneLink(editor: Editor, link: SceneLinkNode): TransformNode {
+	const scene = editor.layout.preview.scene;
+
+	// Nothing is disposed with the link once the content is released.
+	link.releaseContent();
+	const roots = link.getChildren().slice();
+
+	const group = new TransformNode(link.name, scene);
+	group.id = Tools.RandomId();
+	group.uniqueId = UniqueNumber.Get();
+	group.metadata = link.metadata ? JSON.parse(JSON.stringify(link.metadata)) : {};
+	group.parent = link.parent;
+	group.position.copyFrom(link.position);
+	group.rotationQuaternion = link.rotationQuaternion?.clone() ?? Quaternion.FromEulerAngles(link.rotation.x, link.rotation.y, link.rotation.z);
+	group.scaling.copyFrom(link.scaling);
+
+	roots.forEach((node) => (node.parent = group));
+
+	// The content has the ids it has in the prefab, which other instances share: it gets its own.
+	const ids = new Map<string, string>();
+	const materials = new Map<string, string>();
+
+	group.getDescendants(false).forEach((node) => {
+		const id = Tools.RandomId();
+		ids.set(node.id, id);
+
+		node.id = id;
+		node.uniqueId = UniqueNumber.Get();
+
+		if (node instanceof AbstractMesh && node.material && !materials.has(node.material.id)) {
+			const materialId = Tools.RandomId();
+			materials.set(node.material.id, materialId);
+			node.material.id = materialId;
+			node.material.uniqueId = UniqueNumber.Get();
+		}
+	});
+
+	// The scripts that point to nodes of the prefab by id follow them.
+	[group, ...group.getDescendants(false)].forEach((node) => {
+		node.metadata?.scripts?.forEach((script: any) => {
+			Object.values<any>(script.values ?? {}).forEach((value) => {
+				if (value?.type === "entity" && ids.has(value.value)) {
+					value.value = ids.get(value.value);
+				}
+			});
+		});
+	});
+
+	link.dispose();
+
+	editor.layout.graph.refresh();
+	editor.layout.graph.setSelectedNode(group);
+
+	return group;
+}
+
+/**
+ * Opens the prefab of the given scene link in its own window, to edit it: saving it updates every instance.
+ */
+export function openPrefab(editor: Editor, link: SceneLinkNode): void {
+	if (!projectConfiguration.path || !link.relativePath) {
+		return;
+	}
+
+	ipcRenderer.send("window:open", "build/src/editor/windows/scene", {
+		appPath: editor.path,
+		scenePath: join(dirname(projectConfiguration.path), link.relativePath),
+		projectPath: editor.state.projectPath,
+	});
+}
+
+/**
+ * Shows the prefab of the given scene link in the assets browser, selected.
+ */
+export async function revealPrefab(editor: Editor, link: SceneLinkNode): Promise<void> {
+	if (!projectConfiguration.path || !link.relativePath) {
+		return;
+	}
+
+	await editor.layout.assets.revealFile(join(dirname(projectConfiguration.path), link.relativePath));
+}
+
+/**
+ * Writes what an instance overrides in the prefab itself (Unity's "Apply"): the prefab takes the values, and every instance of it,
+ * this one included, shows them. Without nodes, all the overrides of the instance are applied.
+ * @param editor defines the reference to the editor.
+ * @param link defines the instance.
+ * @param node defines the node of the prefab whose overrides are applied.
+ * @returns the number of nodes of the prefab that changed.
+ */
+export async function applyOverridesToPrefab(editor: Editor, link: SceneLinkNode, node?: Node): Promise<number> {
+	if (!projectConfiguration.path || !link.relativePath) {
+		return 0;
+	}
+
+	const all = link.getOverrides();
+	const overrides = node ? (all[node.id] ? { [node.id]: all[node.id] } : {}) : all;
+
+	if (!Object.keys(overrides).length) {
+		return 0;
+	}
+
+	const scenePath = join(dirname(projectConfiguration.path), link.relativePath);
+	const applied = await writeOverridesInPrefab(scenePath, overrides);
+
+	// The instances (this one too) load the prefab again: they show the new values.
+	await reloadSceneLinks(editor, scenePath);
+
+	editor.layout.graph.refresh();
+	editor.layout.inspector.forceUpdate();
+
+	return applied.length;
 }
 
 function getWorldPosition(node: Node): Vector3 {
-	return isAnyTransformNode(node) || (node as any).getAbsolutePosition ? (node as any).getAbsolutePosition().clone() : Vector3.Zero();
+	return (node as TransformNode).getAbsolutePosition ? (node as TransformNode).getAbsolutePosition().clone() : Vector3.Zero();
 }
 
 function getParentWorldMatrixInverse(parent: Node) {
 	return (parent as TransformNode).getWorldMatrix().clone().invert();
-}
-
-function getRotationQuaternion(node: Node): Quaternion {
-	const transformNode = node as TransformNode;
-	if (transformNode.rotationQuaternion) {
-		return transformNode.rotationQuaternion.clone();
-	}
-
-	const rotation = transformNode.rotation ?? Vector3.Zero();
-	return Quaternion.FromEulerAngles(rotation.x, rotation.y, rotation.z);
 }

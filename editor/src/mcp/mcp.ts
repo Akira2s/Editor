@@ -8,7 +8,7 @@ import { IMCPActionOptions } from "./action";
 
 import { getSceneHierarchy } from "./scene/hierarchy";
 import { listScenes, getActiveScene, saveScene, getSceneSettings, setSceneSettings } from "./scene/scene";
-import { listPrefabs, createPrefab, instantiatePrefab } from "./scene/prefabs";
+import { listPrefabs, createPrefab, instantiatePrefab, getPrefabInstance, setPrefabOverride, revertPrefabOverrides, applyPrefabOverrides, unpackPrefab } from "./scene/prefabs";
 
 import { getNode, setNodeTransform, setNodeProperties, setNodeParent, renameNode, deleteNode, selectNode, getSelectedNodes } from "./nodes/nodes";
 import { createPrimitiveMesh, createInstance, cloneMesh, setMeshMaterial, setMeshVisibility, setMeshPhysics, getMeshBoundingInfo } from "./meshes/meshes";
@@ -69,6 +69,11 @@ export const MCPEndpoints: Record<string, (scene: Scene, data: any, options: IMC
 	list_prefabs: listPrefabs,
 	create_prefab: createPrefab,
 	instantiate_prefab: instantiatePrefab,
+	get_prefab_instance: getPrefabInstance,
+	set_prefab_override: setPrefabOverride,
+	revert_prefab_overrides: revertPrefabOverrides,
+	apply_prefab_overrides: applyPrefabOverrides,
+	unpack_prefab: unpackPrefab,
 	clone_mesh: cloneMesh,
 	set_mesh_material: setMeshMaterial,
 	set_mesh_visibility: setMeshVisibility,

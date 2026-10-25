@@ -19,6 +19,7 @@ import { setInspectorSearch } from "./inspector/fields/field";
 import { IEditorInspectorImplementationProps } from "./inspector/inspector";
 
 import { EditorSceneInspector } from "./inspector/scene/scene";
+import { EditorPrefabNodeBanner } from "./inspector/prefab";
 
 import { EditorMeshInspector } from "./inspector/mesh/mesh";
 import { EditorTransformNodeInspector } from "./inspector/transform";
@@ -139,6 +140,8 @@ export class EditorInspector extends Component<IEditorInspectorProps, IEditorIns
 							<HoverCardContent>The object is locked, meaning it cannot be modified in the inspector. You can unlock it in the scene graph.</HoverCardContent>
 						</HoverCard>
 					)}
+
+					{!!this.state.editedObject && isNode(this.state.editedObject) && <EditorPrefabNodeBanner editor={this.props.editor} node={this.state.editedObject} />}
 
 					{this.props.editor.layout.preview?.play?.state.playing && (
 						<Badge variant="secondary" className="flex items-center gap-2 w-full">

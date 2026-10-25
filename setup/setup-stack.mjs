@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import fs from 'fs';
+import os from 'os';
 import path from 'path';
 import { execSync } from 'child_process';
 import readline from 'readline/promises';
@@ -25,7 +26,44 @@ console.log('🚀 Provisioning Babylon.js Editor v5 AI Development Stack...\n');
 //    --install-blender (kept for compatibility). Without a TTY nothing is installed unless a flag says so.
 // ---------------------------------------------------------------------------
 const cliArgs = process.argv.slice(2);
-const forkDir = process.env.EDITOR_FORK_DIR ?? 'D:/GenAI/tools/babylonjs-editor/repo';
+// Locations are never hardcoded: an environment variable wins, then the project's .env (written by an earlier run),
+// then a question, then a default under the home folder.
+const FORK_DEFAULT_DIR = path.join(os.homedir(), 'babylonjs-editor', 'repo');
+const COMFY_DEFAULT_DIR = path.join(os.homedir(), 'ComfyUI');
+
+function readEnvValue(key) {
+  const file = path.join(rootDir, '.env');
+  if (!fs.existsSync(file)) return null;
+  const line = fs.readFileSync(file, 'utf-8').split(/\r?\n/).find(l => l.startsWith(`${key}=`));
+  return line ? line.slice(key.length + 1).trim() || null : null;
+}
+
+function setEnvValue(key, value) {
+  const file = path.join(rootDir, '.env');
+  const lines = fs.existsSync(file) ? fs.readFileSync(file, 'utf-8').split(/\r?\n/) : [];
+  while (lines.length > 0 && lines[lines.length - 1] === '') lines.pop();
+  const at = lines.findIndex(l => l.startsWith(`${key}=`));
+  if (at >= 0) lines[at] = `${key}=${value}`;
+  else lines.push(`${key}=${value}`);
+  fs.writeFileSync(file, lines.join('\n').replace(/\n*$/, '\n'), 'utf-8');
+}
+
+const assumeYes = cliArgs.includes('--yes') || cliArgs.includes('-y');
+const interactive = Boolean(process.stdin.isTTY) && !assumeYes && !cliArgs.includes('--no-prompt');
+const rl = interactive ? readline.createInterface({ input: process.stdin, output: process.stdout }) : null;
+
+async function resolveDir(envKey, question, fallback) {
+  const known = process.env[envKey] ?? readEnvValue(envKey);
+  if (known) return known;
+  if (!rl) return fallback;
+  const answer = (await rl.question(`  ${question}\n  [${fallback}] `)).trim().replace(/^["']|["']$/g, '');
+  return answer === '' ? fallback : path.resolve(answer.replace(/^~(?=$|[\\/])/, os.homedir()));
+}
+
+if (interactive) console.log('Where should things live? Press Enter to accept the default.\n');
+const forkDir = await resolveDir('EDITOR_FORK_DIR', 'Folder of the Babylon.js Editor fork checkout (an existing one is reused, otherwise it is cloned here):', FORK_DEFAULT_DIR);
+const comfyRoot = await resolveDir('COMFYUI_ROOT', 'Folder of ComfyUI (used by the ComfyUI helper scripts):', COMFY_DEFAULT_DIR);
+if (interactive) console.log('');
 const FORK_URL = 'https://github.com/Akira2s/Editor.git';
 
 function has(cmd) {
@@ -84,21 +122,20 @@ const missing = prerequisites.filter(p => !p.present());
 prerequisites.filter(p => !missing.includes(p)).forEach(p => console.log(`  ✅ Found: ${p.label}`));
 
 if (missing.length > 0) {
-  if (cliArgs.includes('--yes') || cliArgs.includes('-y')) {
+  if (assumeYes) {
     missing.forEach(p => selected.add(p.id));
-  } else if (process.stdin.isTTY && !cliArgs.includes('--no-prompt')) {
+  } else if (rl) {
     console.log('\nThese prerequisites are missing. Choose what to install now:\n');
-    const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
     for (const p of missing) {
       const answer = (await rl.question(`  Install ${p.label}? [Y/n] `)).trim().toLowerCase();
       if (answer === '' || answer === 'y' || answer === 'yes') selected.add(p.id);
     }
-    rl.close();
   } else {
     missing.forEach(p => console.log(`  ⚠️  Missing: ${p.label} (rerun in a terminal to be asked, or pass --yes)`));
   }
   console.log('');
 }
+rl?.close();
 
 // ---------------------------------------------------------------------------
 // 1. Babylon.js Editor Directory Structure
@@ -277,6 +314,11 @@ const envExample = [
   'COMFY_LOCAL_URL=http://127.0.0.1:8188',
   'COMFY_CLOUD_URL=https://api.comfy.org',
   'COMFY_CLOUD_API_KEY=',
+  '',
+  '# Folders chosen during setup (setup-stack.mjs writes these into .env)',
+  '# EDITOR_FORK_DIR=   checkout of the Babylon.js Editor fork (prefab runtime and packer)',
+  '# COMFYUI_ROOT=      folder that holds ComfyUI/ (and python/ for a portable install)',
+  '# TOOLS_DIR=         folder with optional external tools (instant-meshes, quadwild-bimdf, autoremesher)',
   '',
   '# Blender & Babylon.js Editor Paths',
   'BLENDER_EXECUTABLE=blender',
@@ -1104,7 +1146,7 @@ const agentMd = [
   "9. **The Editor stays the source of truth for the scene.** Do not bulk-generate the final scene with `run_agent_script` / MCP loops and then hide its structure in code. Scaffolding is fine when it creates editable, componentized nodes. Runtime-only singletons (`window.__game`) are for debugging, never required for the game to work.",
   "10. **Editability acceptance test.** Before calling a game feature done, check and report to the user: (a) select a unit/enemy/tile in the Graph and read its stats in the Inspector; (b) change one value in the Inspector, press Play: it takes effect; (c) drop another prefab instance into the scene: it works at runtime; (d) change a number in a data JSON: behaviour changes with no code edit; (e) `npm run check:architecture` passes.",
   "",
-  "**Editor fork requirement (verified Oct 2026):** instances are packed and instantiated only by the `babylonjs-editor-cli` and `babylonjs-editor-tools` built from our Editor fork; the published 5.5.x packages drop them. Run `npm run use:editor-fork` once (and after pulling a new fork version): it builds both packages in the fork (`EDITOR_FORK_DIR`, default `D:/GenAI/tools/babylonjs-editor/repo`) and installs them from `vendor/editor-fork/`, which is committed with the project. **Verified end to end with real input (Editor driven through the DevTools protocol, then the packed game in Chromium):** Create Prefab (menu, undo, redo), a second instance, an override typed in the Inspector, Revert, Apply to prefab, save and reopen (the override survives), the restricted menu of prefab nodes, removal refused, Show Prefab in Assets, a scene asset dropped on the Graph, a node dropped on the Assets Browser, Unpack, the instanced-mesh guard, the MCP tools; in the packed game the instances show the prefab with its geometry at the right place, the override reaches the game, the scripts of the prefab and of the instance run, prefabs made of prefabs work, a scene linking to itself stops with an error, and a prefab spawned from a script with `@visibleAsAsset(\"scene\")` works. **Limits:** overrides cover transform, enabled/visible and script values (not materials, names, or adding/removing nodes: make a variant prefab); the nodes of a prefab nested in another prefab can't be overridden from the outer instance; unpacking is not undoable. Further Editor features are candidates for the fork (`D:/GenAI/tools/babylonjs-editor`, one branch per feature): ask the user before building them.",
+  "**Editor fork requirement (verified Oct 2026):** instances are packed and instantiated only by the `babylonjs-editor-cli` and `babylonjs-editor-tools` built from our Editor fork; the published 5.5.x packages drop them. Run `npm run use:editor-fork` once (and after pulling a new fork version): it builds both packages in the fork (`EDITOR_FORK_DIR`, default `$EDITOR_FORK_DIR`) and installs them from `vendor/editor-fork/`, which is committed with the project. **Verified end to end with real input (Editor driven through the DevTools protocol, then the packed game in Chromium):** Create Prefab (menu, undo, redo), a second instance, an override typed in the Inspector, Revert, Apply to prefab, save and reopen (the override survives), the restricted menu of prefab nodes, removal refused, Show Prefab in Assets, a scene asset dropped on the Graph, a node dropped on the Assets Browser, Unpack, the instanced-mesh guard, the MCP tools; in the packed game the instances show the prefab with its geometry at the right place, the override reaches the game, the scripts of the prefab and of the instance run, prefabs made of prefabs work, a scene linking to itself stops with an error, and a prefab spawned from a script with `@visibleAsAsset(\"scene\")` works. **Limits:** overrides cover transform, enabled/visible and script values (not materials, names, or adding/removing nodes: make a variant prefab); the nodes of a prefab nested in another prefab can't be overridden from the outer instance; unpacking is not undoable. Further Editor features are candidates for the fork (`the fork checkout`, one branch per feature): ask the user before building them.",
   "",
   "## 3. Art Direction, ORM Packing & Sidecar Provenance",
   "1. **Read the Art Bible First:** Inspect `docs/art-bible.html` (or call `get_art_bible_rules` via `babylon-editor-mcp`) before creating models, textures, or materials.",
@@ -1138,7 +1180,7 @@ const agentMd = [
   "2. **Turnaround** (`generate_turnaround_sheet` in the ComfyUI MCP; Klein 9B + CharacterSheet TripleView LoRA): *always* describe the anatomy in `subject_description` (the LoRA is human-biased and will make a biped), use `lora_strength` ~0.6, and look at the sheet before meshing. Strength 1.0 repeated the front as the \"back\".",
   "3. **Mesh** (`generate_mesh_from_views`; **have a human look at it from all sides before retopo**, see the QA note below): multi-view Pixal3D anchors the pose to the front view, so the result is axis-aligned. Single-view Pixal3D keeps the source image's 3/4 pose (roll/pitch of 10-15 degrees) and must be PCA-aligned first. Never override Pixal3D's defaults and never ask the built-in `DecimateMesh` for a low count on the raw mesh: that is what produced the shattered meshes.",
   "4. **Watertight shell**: `scripts/retopo/comfy_mesh.py solid in.glb --tag x` (ComfyUI `RemeshMesh`, `sign_mode=solid`, ~30 s, removes double shells/interior parts/debris). Never retopo the raw mesh.",
-  "4b. **Retopo (default: GPU decimate)**: `comfy_mesh.py decimate shell.glb --tris <budget>` (ComfyUI `DecimateMesh`, ~2 s, triangles only) fed the *full* watertight shell. On the 10k-tri character it beat every quad route: IoU 0.973/0.968/0.977 against the shell and 0.0% open edges. Check it with `meshtools.py eval shell.obj out.obj` (IoU >= 0.95 on every axis, open edges < 1%). Quad routes are optional extras for assets that need quad flow (deformation, LOD0 >= ~20k quads): Instant Meshes (`scripts/retopo/quad_tools.sh instant in.obj out.obj <target_tris> 35` on a ~150k-tri decimated shell, same gate; patch the ~1% open edges) or QuadWild (cleanest surface, but its quad count follows the input: 10k-tri input -> 64k tris, 150k -> 215k; not steerable to a game budget). Measured on the character at 10k tris: Instant Meshes fails the gate (IoU 0.925-0.959, 2.4-3.8% open edges); decimating a dense Instant Meshes quad mesh (51k/103k quads) down to 10k gave no tessellation gain over decimating the shell directly (edge-length CV ~0.55, slivers ~15-17%) and added 0.8-1.5% open edges. `meshtools.py` needs scipy: run it with ComfyUI's `D:/GenAI/KritaDiffusion/ComfyUI/python/python.exe`.",
+  "4b. **Retopo (default: GPU decimate)**: `comfy_mesh.py decimate shell.glb --tris <budget>` (ComfyUI `DecimateMesh`, ~2 s, triangles only) fed the *full* watertight shell. On the 10k-tri character it beat every quad route: IoU 0.973/0.968/0.977 against the shell and 0.0% open edges. Check it with `meshtools.py eval shell.obj out.obj` (IoU >= 0.95 on every axis, open edges < 1%). Quad routes are optional extras for assets that need quad flow (deformation, LOD0 >= ~20k quads): Instant Meshes (`scripts/retopo/quad_tools.sh instant in.obj out.obj <target_tris> 35` on a ~150k-tri decimated shell, same gate; patch the ~1% open edges) or QuadWild (cleanest surface, but its quad count follows the input: 10k-tri input -> 64k tris, 150k -> 215k; not steerable to a game budget). Measured on the character at 10k tris: Instant Meshes fails the gate (IoU 0.925-0.959, 2.4-3.8% open edges); decimating a dense Instant Meshes quad mesh (51k/103k quads) down to 10k gave no tessellation gain over decimating the shell directly (edge-length CV ~0.55, slivers ~15-17%) and added 0.8-1.5% open edges. `meshtools.py` needs scipy: run it with ComfyUI's `$COMFYUI_ROOT/python/python.exe`.",
   "5. **Bake detail** in Blender via the MCP: `exec(open(\"scripts/blender/retopo.py\").read())`, then `bake(low, high, size=2048)` and `emissive_from_albedo(...)`. Import OBJ intermediates with a +90 deg X rotation (glTF Y-up vs Blender Z-up), verify the bounding boxes match before baking.",
   "6. **Score every candidate with the same yardstick**: `python scripts/retopo/meshtools.py eval <reference> <candidate>` (ComfyUI's python). Use the watertight shell as the reference, not the raw mesh, which has hidden interior surfaces. Differences under ~2 mm are sampling noise.",
   "",
@@ -1160,7 +1202,7 @@ const agentMd = [
   "",
   "**Automation:** the `mesh-from-image` skill (`.claude/skills/mesh-from-image/SKILL.md`) is the procedure for \"generate a mesh from this image\". Its helper `scripts/retopo/prep_views.py` (run with ComfyUI's python) cuts sheets into panels, guesses each side view's facing from the silhouette (6/6 known side views correct, plain backgrounds only) and slots views by facing. Verified end to end: helper-slotted four views (run 00029) gave a clean mesh, same as the hand-slotted run 00027.",
   "",
-  "**AutoRemesher (huxingyi, MIT, v1.2.0, `D:/GenAI/tools/autoremesher/bin/autoremesher.exe`; CLI `-i in.obj -o out.obj --target-quads N --adaptivity 0..1 --edge-scaling --sharp-edge --report r.txt`)**: ~2-4 s, quad count steerable (uniform density, `--adaptivity 0`: 5,130 quads for a 5,000 target; adaptivity 1 undershoots badly, ~1/3 of the target). Character shell (150k-tri input, scored vs the 1.8M shell): ~10k tris IoU 0.914/0.894/0.939 (fails the gate), ~13k 0.923/0.912/0.946, ~15k uniform 0.929/0.918/0.952, ~15k adaptive 0.953/0.934/0.957; non-manifold 0.3-1.1%. Regularity (uniform) is better than decimate (edge-length CV 0.31-0.35 vs 0.53, slivers 5-7% vs 15%) but below Instant Meshes direct (CV 0.26, slivers 3%). Same class as Instant Meshes: a quad base for LOD0 >= ~15k tris, not the 10k default. The Blender add-on (jakeblakeley/autoremesher-blender) wraps the same core; macOS-only tested, not needed.",
+  "**AutoRemesher (huxingyi, MIT, v1.2.0, `$TOOLS_DIR/autoremesher/bin/autoremesher.exe`; CLI `-i in.obj -o out.obj --target-quads N --adaptivity 0..1 --edge-scaling --sharp-edge --report r.txt`)**: ~2-4 s, quad count steerable (uniform density, `--adaptivity 0`: 5,130 quads for a 5,000 target; adaptivity 1 undershoots badly, ~1/3 of the target). Character shell (150k-tri input, scored vs the 1.8M shell): ~10k tris IoU 0.914/0.894/0.939 (fails the gate), ~13k 0.923/0.912/0.946, ~15k uniform 0.929/0.918/0.952, ~15k adaptive 0.953/0.934/0.957; non-manifold 0.3-1.1%. Regularity (uniform) is better than decimate (edge-length CV 0.31-0.35 vs 0.53, slivers 5-7% vs 15%) but below Instant Meshes direct (CV 0.26, slivers 3%). Same class as Instant Meshes: a quad base for LOD0 >= ~15k tris, not the 10k default. The Blender add-on (jakeblakeley/autoremesher-blender) wraps the same core; macOS-only tested, not needed.",
   ""
 ].join('\n');
 
@@ -1183,18 +1225,20 @@ const embeddedFiles = {
     "//",
     "// Why: prefabs (scene links) are only packed and instantiated by the fork's versions of these two packages; the published",
     "// ones (5.5.x on npm) drop them. Run it after pulling a new version of the fork, and commit vendor/editor-fork/.",
-    "// The fork lives in EDITOR_FORK_DIR (default D:/GenAI/tools/babylonjs-editor/repo, see its README).",
+    "// The fork lives in EDITOR_FORK_DIR (environment, or .env written by setup-stack.mjs; default ~/babylonjs-editor/repo).",
     "import fs from 'fs';",
+    "import os from 'os';",
     "import path from 'path';",
     "import { execFileSync, execSync } from 'child_process';",
     "",
-    "const forkDir = process.env.EDITOR_FORK_DIR ?? 'D:/GenAI/tools/babylonjs-editor/repo';",
+    "const envLine = fs.existsSync('.env') ? fs.readFileSync('.env', 'utf-8').split(/\\r?\\n/).find((l) => l.startsWith('EDITOR_FORK_DIR=')) : null;",
+    "const forkDir = process.env.EDITOR_FORK_DIR ?? envLine?.slice('EDITOR_FORK_DIR='.length).trim() ?? path.join(os.homedir(), 'babylonjs-editor', 'repo');",
     "const vendorDir = path.resolve('vendor/editor-fork');",
     "const build = !process.argv.includes('--no-build');",
     "const npm = process.platform === 'win32' ? 'npm.cmd' : 'npm';",
     "",
     "if (!fs.existsSync(path.join(forkDir, 'tools/package.json'))) {",
-    "  console.error(`❌ The Editor fork was not found in ${forkDir}. Set EDITOR_FORK_DIR to its checkout.`);",
+    "  console.error(`❌ The Editor fork was not found in ${forkDir}. Set EDITOR_FORK_DIR (environment or .env) to its checkout.`);",
     "  process.exit(1);",
     "}",
     "",
@@ -1730,13 +1774,23 @@ const embeddedFiles = {
     "watertight shell; only decimate that, never the raw mesh. Numbers on the walker: 698k raw -> 3.1M-tri solid in ~30 s,",
     "-> 6k tris in ~2 s.",
     "\"\"\"",
-    "import argparse, shutil, sys, time, uuid",
+    "import argparse, os, shutil, sys, time, uuid",
     "from pathlib import Path",
     "",
     "import requests",
     "",
     "COMFY = \"http://127.0.0.1:8188\"",
-    "INPUT_3D = Path(r\"D:\\GenAI\\KritaDiffusion\\ComfyUI\\ComfyUI\\input\\3d\")",
+    "def _comfy_root():",
+    "    root = os.environ.get(\"COMFYUI_ROOT\")",
+    "    env = Path(__file__).resolve().parents[2] / \".env\"",
+    "    if not root and env.is_file():",
+    "        for line in env.read_text(encoding=\"utf-8\").splitlines():",
+    "            if line.startswith(\"COMFYUI_ROOT=\"):",
+    "                root = line.split(\"=\", 1)[1].strip().strip('\"')",
+    "    return Path(root) if root else Path.home() / \"ComfyUI\"",
+    "",
+    "",
+    "INPUT_3D = _comfy_root() / \"ComfyUI\" / \"input\" / \"3d\"",
     "PLACEHOLDER = \"ignored.png\"  # Load3D insists on preview-capture images; any file in ComfyUI/input works",
     "",
     "",
@@ -2258,9 +2312,9 @@ const embeddedFiles = {
     "#!/bin/bash",
     "# Wrappers for the two external quad remeshers evaluated for the walker (see AGENT.md \"Retopo workflow\").",
     "# Tool locations (downloaded outside the repo):",
-    "#   QuadWild Bi-MDF v0.0.2  https://github.com/cgg-bern/quadwild-bimdf/releases  -> D:/GenAI/tools/quadwild-bimdf/bin",
+    "#   QuadWild Bi-MDF v0.0.2  https://github.com/cgg-bern/quadwild-bimdf/releases  -> $TOOLS_DIR/quadwild-bimdf/bin",
     "#   Instant Meshes          https://instant-meshes.s3.eu-central-1.amazonaws.com/Release/instant-meshes-windows.zip",
-    "#                                                                                -> D:/GenAI/tools/instant-meshes/bin",
+    "#                                                                                -> $TOOLS_DIR/instant-meshes/bin",
     "#",
     "#   quad_tools.sh instant <in.obj> <out.obj> <approx_tris> [crease_deg]   (feed it a ~150k-tri watertight solid)",
     "#   quad_tools.sh quadwild <in.obj> <workdir> [sharp_thr=35] [alpha=0.01]   (prints the final quad OBJ path)",
@@ -2272,8 +2326,11 @@ const embeddedFiles = {
     "#  * QuadWild: cleanest surface but worse fit than Instant Meshes, 2-4 min, and quad count follows the input detail",
     "#    (cannot be steered to a game budget). Extra `.sharp` guide files work (scripts/retopo/ring_guide.py) but only nudge.",
     "set -e",
-    "IM=\"D:/GenAI/tools/instant-meshes/bin/Instant Meshes.exe\"",
-    "QW=\"D:/GenAI/tools/quadwild-bimdf/bin\"",
+    "# TOOLS_DIR: environment, else TOOLS_DIR= in the project's .env, else ~/tools",
+    "TOOLS_DIR=\"${TOOLS_DIR:-$(sed -n 's/^TOOLS_DIR=//p' \"$(dirname \"$0\")/../../.env\" 2>/dev/null | tr -d '\\r\"')}\"",
+    "TOOLS_DIR=\"${TOOLS_DIR:-$HOME/tools}\"",
+    "IM=\"$TOOLS_DIR/instant-meshes/bin/Instant Meshes.exe\"",
+    "QW=\"$TOOLS_DIR/quadwild-bimdf/bin\"",
     "case \"$1\" in",
     "  instant)",
     "    in=\"$2\"; out=\"$3\"; tris=\"$4\"; crease=\"${5:-}\"",
@@ -2381,8 +2438,18 @@ const embeddedFiles = {
     "Loads the GLB (Load3D -> Get3DComponents, textures kept), rotates it about Y by each angle (default 0 90 180 270) and renders with",
     "its texture. USE IT before retopo: a multi-view mesh whose 180 deg render repeats its 0 deg render has a back that is a copy of",
     "the front. (Blender's viewport and vertex-colour proxies misled us on this; this renderer did not.)\"\"\"",
-    "import sys, shutil, time, uuid, json, pathlib, requests",
-    "BASE = \"http://127.0.0.1:8188\"; INP = pathlib.Path(r\"D:\\GenAI\\KritaDiffusion\\ComfyUI\\ComfyUI\\input\\3d\"); args = sys.argv[1:]",
+    "import os, sys, shutil, time, uuid, json, pathlib, requests",
+    "def _comfy_root():",
+    "    root = os.environ.get(\"COMFYUI_ROOT\")",
+    "    env = pathlib.Path(__file__).resolve().parents[2] / \".env\"",
+    "    if not root and env.is_file():",
+    "        for line in env.read_text(encoding=\"utf-8\").splitlines():",
+    "            if line.startswith(\"COMFYUI_ROOT=\"):",
+    "                root = line.split(\"=\", 1)[1].strip().strip('\"')",
+    "    return pathlib.Path(root) if root else pathlib.Path.home() / \"ComfyUI\"",
+    "",
+    "",
+    "BASE = \"http://127.0.0.1:8188\"; INP = _comfy_root() / \"ComfyUI\" / \"input\" / \"3d\"; args = sys.argv[1:]",
     "def opt(k, d):",
     "    if k in args: i = args.index(k); v = args[i + 1]; del args[i:i + 2]; return v",
     "    return d",
@@ -2426,7 +2493,7 @@ const embeddedFiles = {
     "Look at every image and decide, for each, whether it is **one view** or a **sheet of several views**, and which view it is",
     "(front / back / side / 3-4). Run the splitter, which cuts sheets into panels and guesses which way side views face:",
     "",
-    "    D:/GenAI/KritaDiffusion/ComfyUI/python/python.exe scripts/retopo/prep_views.py analyze <images...> --out <workdir>",
+    "    $COMFYUI_ROOT/python/python.exe scripts/retopo/prep_views.py analyze <images...> --out <workdir>",
     "",
     "Read `<workdir>/contact.png`, label each panel, and confirm the facing guesses by eye (the script's guess is a heuristic; below",
     "confidence 0.08 it refuses and you must assign the slot yourself).",
@@ -2445,7 +2512,7 @@ const embeddedFiles = {
     "The rig's `left` slot wants the side view in which the subject **faces image-left**, `right` the one **facing image-right**. The",
     "label on an image (\"left view\") is irrelevant. A turnaround sheet's side panel faces image-right, so it goes in `right`.",
     "",
-    "    D:/GenAI/KritaDiffusion/ComfyUI/python/python.exe scripts/retopo/prep_views.py slot <workdir> front=0 back=2 side=1 [side=3]",
+    "    $COMFYUI_ROOT/python/python.exe scripts/retopo/prep_views.py slot <workdir> front=0 back=2 side=1 [side=3]",
     "    # force when unclear: side_left=<idx> (faces image-left) / side_right=<idx> (faces image-right)",
     "",
     "It prints `front_path/back_path/left_path/right_path`. Pass exactly those to `generate_mesh_from_views` with",
@@ -2475,6 +2542,10 @@ for (const [relPath, content] of Object.entries(embeddedFiles)) {
 // ---------------------------------------------------------------------------
 // 11. Install NPM Packages & Run Preflight Doctor
 // ---------------------------------------------------------------------------
+setEnvValue('EDITOR_FORK_DIR', forkDir);
+setEnvValue('COMFYUI_ROOT', comfyRoot);
+console.log('  ✅ Saved EDITOR_FORK_DIR and COMFYUI_ROOT in .env');
+
 for (const p of prerequisites) {
   if (!selected.has(p.id) || !p.install) continue;
   const absent = (p.requires ?? []).filter(cmd => !has(cmd));
@@ -2497,7 +2568,7 @@ try {
   try {
     execSync('node scripts/use-editor-fork.mjs', { stdio: 'inherit' });
   } catch {
-    console.error('⚠️  Could not install the Editor fork packages. Set EDITOR_FORK_DIR and re-run: npm run use:editor-fork');
+    console.error('⚠️  Could not install the Editor fork packages. Check EDITOR_FORK_DIR in .env and re-run: npm run use:editor-fork');
   }
   execSync('node scripts/doctor.mjs', { stdio: 'inherit' });
   console.log('\n🧊 Setting up Blender MCP...');

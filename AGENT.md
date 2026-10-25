@@ -1,0 +1,132 @@
+# AGENT.md
+
+This file provides guidance to AI coding agents (Claude Code, Codex, Antigravity, and others) when working with code in this repository. `CLAUDE.md` only imports it, so keep the content here.
+
+## Repository overview
+
+Babylon.js Editor 5 — a desktop (Electron) application for creating and editing 3D scenes with the Babylon.js engine. This is a **yarn classic workspaces monorepo**. The workspaces are:
+
+- `editor/` — `babylonjs-editor`: the Electron app (main process + React renderer). Also publishes a public API (`editor/src/export.ts`) consumed by plugins/scripts.
+- `tools/` — `babylonjs-editor-tools`: a runtime library bundled into exported/packaged projects (scene loading, decorators, rendering pipelines, cinematic system). This is what user game code (`src/scripts.ts` etc.) imports.
+- `cli/` — `babylonjs-editor-cli`: command-line tool used to pack/export a project's assets, geometries, scenes and scripts, plus S3 upload helpers.
+- `mcp/` — `babylonjs-editor-mcp-server`: MCP server exposing editor scene-composition capabilities to AI agents (see `mcp/specifications.md` for the product/feature spec).
+- `plugins/` — editor marketplace plugins (`quixel`, `fab`).
+- `templates/` — project templates scaffolded for new user projects: `nextjs`, `nuxtjs`, `solidjs`, `vanillajs`, `electron`.
+- `website/` — Next.js marketing + documentation site (editor.babylonjs.com).
+
+The `@babylonjs/*` / `babylonjs-*` engine packages are pinned via the root `resolutions` field (currently `9.9.1`) — keep these in sync if bumping the engine version.
+
+## Common commands
+
+Install once at the root (yarn classic):
+```bash
+yarn install
+```
+
+### Build
+```bash
+yarn build              # tools -> cli -> mcp-server -> editor -> plugins (sequential, dependency order)
+yarn build-all          # build + templates + website
+yarn build-all-concurrently
+yarn build-editor / build-tools / build-cli / build-mcp-server / build-plugins / build-templates / build-website
+```
+
+### Run / develop
+```bash
+yarn start                 # launches the Electron editor (babylonjs-editor)
+yarn watch-editor-all       # tsc + esbuild + tailwind watch for the editor
+yarn watch-tools / watch-cli / watch-mcp-server / watch-plugins
+```
+In VS Code, `Cmd/Ctrl+Shift+B` → `watch-all-editor` runs all watchers concurrently (editor, tools, plugins, cli, mcp-server). When changing `tools/`, `cli/`, or `mcp/`, run their watcher alongside the editor's so the editor picks up the rebuilt dependency.
+
+### Lint & format
+```bash
+yarn format / yarn format-check     # prettier (tabs, double quotes, printWidth 180, trailing comma "es5")
+yarn lint                           # format-check + eslint across editor, tools, cli, mcp-server, plugins, templates, website
+yarn lint-fix                       # format + eslint --fix across all of the above
+yarn lint-editor / lint-tools / lint-cli / lint-mcp-server / lint-plugins / lint-templates / lint-website
+```
+ESLint config is the flat config at `eslint.config.mjs` plus the custom rule `.eslint/eslint-rules/require-return-type-on-class-methods.mjs` (every class method needs an explicit return type). `editor/src/ui/shadcn/**` and template `scripts.ts` files are excluded from linting.
+
+### Tests
+Tests use vitest, per-workspace:
+```bash
+yarn test                                                  # tools tests then editor tests
+yarn coverage                                              # same, with coverage
+yarn workspace babylonjs-editor-tools test                 # tools/test/**/*.test.ts
+yarn workspace babylonjs-editor test                       # editor/test/**/*.test.mts
+```
+To run a single test file, `cd` into the workspace and call vitest directly, e.g.:
+```bash
+cd tools && yarn vitest run test/tools/scene.test.ts
+cd editor && yarn vitest run test/tools/node/clone.test.mts
+```
+`cli/` and `mcp/` currently have no test scripts.
+
+### Packaging
+```bash
+yarn package --noSign [--x64] [--arm64]   # full pipeline: clean, install, lint, build-all-concurrently, test, then build.mjs (electron-builder)
+```
+Packaging is platform-bound: macOS builds must run on macOS, Windows builds on Windows (native deps, code signing). macOS signing/notarization needs `APPLE_ID`, `APPLE_APP_SPECIFIC_PASSWORD`, `APPLE_TEAM_ID` in a root `.env`.
+
+## Architecture
+
+### Electron app (`editor/`)
+- `editor/src/index.ts` — Electron **main process** entry point. Manages the dashboard window vs. per-project editor windows (`editorWindows`), app menu setup, IPC routing (`ipcMain`), auto-update, and registers the `babylonjs-editor://` protocol. Side-effect imports wire up IPC handlers: `electron/node-pty`, `electron/events/{shell,dialog,editor,window,export}`, `electron/assimp/assimpjs`, `electron/protocol`, `electron/oauth`.
+- `editor/src/dashboard/` — the project-picker/dashboard window (renderer + its own preload/menu).
+- `editor/src/editor/main.tsx` — the `Editor` React component, the **renderer** root for a project window. Holds top-level state (compressed-texture settings, opened tabs, plugin list) and reacts to IPC events (`save`, `editor:open`, `editor:run-project`, undo/redo, etc.).
+- `editor/src/editor/layout.tsx` — `EditorLayout`, a `flexlayout-react` model (`layout.json` is the default panel layout). Owns refs to the main panels: `EditorGraph` (scene tree), `EditorPreview` (3D viewport), `EditorInspector`, `EditorAssetsBrowser`, `EditorAnimation`, `EditorConsole`, `EditorMarketplaceBrowser`. Layout is persisted to `localStorage` and versioned via `_layoutVersion`.
+- `editor/src/editor/windows/{ge,nme,npe,scene}` — separate Electron windows for the Babylon.js Geometry/Node Material/Node Particle editors.
+- `editor/src/electron/` — main-process integrations: node-pty terminal, native dialogs, assimp (model conversion) worker, OAuth, custom protocol handler.
+- `editor/src/project/` — project persistence pipeline:
+  - `project/save/` and `project/load/` — serialize/deserialize the `.bjseditor` project and `.scene` assets (scenes, decals, textures).
+  - `project/export/` — "Generate"/export pipeline (assets, KTX/KTX2 compression, LODs, materials, particles, physics, scripts).
+  - `project/configuration.ts` — global `projectConfiguration` singleton + `onProjectConfigurationChangedObservable`.
+  - `project/typings.ts` — `IEditorProject` shape and project-level enums (compressed texture software/quality, package manager).
+- `editor/src/loader/` — runtime loaders used by the editor preview (mesh, material, texture, animation, node, assimp).
+- `editor/src/tools/` — editor-internal utilities grouped by domain (`scene`, `mesh`, `material`, `node`, `light`, `particles`, `physics`, `animation`, `recast` (navmesh), `plugins`, `workers`, `guards`, `maths`).
+- `editor/src/mcp/` — in-editor side of MCP integration (actions the MCP server can invoke, scene hierarchy queries). `startMcpServer()` serves them over HTTP on the loopback interface, optionally behind a token.
+- `editor/src/editor/layout/assistant.tsx` (+ `assistant/`) — the AI assistant panel docked on the right of the editor (topbar button, `editor.toggleAssistant()`). It hosts the user's own agent CLI (Claude Code, Codex or Antigravity CLI, chosen in its menu) in a terminal (never handles credentials), gives it the MCP server bundled with the editor (`editor/build/mcp/index.mjs`, run by the editor executable with `ELECTRON_RUN_AS_NODE`) connected to its window through a per-window port and token, and watches `assets/` to refresh the assets browser and reload changed assets (`editor/src/tools/assets/reload.ts`).
+- `editor/src/export.ts` — the **public API surface** re-exported as the `babylonjs-editor` package (used by the `plugins/` workspaces and potentially user scripts). When adding something plugins/scripts should consume, export it here.
+
+### Runtime library (`tools/`)
+`babylonjs-editor-tools` ships inside exported/packaged projects (it's what `templates/*/src/scripts.ts` import). Key areas:
+- `loading/` — scene/container/material/light/etc. loaders that reconstruct what the editor saved, including the IndexedDB-backed asset `database/`.
+- `decorators/` — `@nodeFromScene`, `@visibleInInspector`-style decorators (`scene.ts`, `gui.ts`, `inspector.ts`, `events.ts`, `particle-systems.ts`, `sound.ts`, `sprite.ts`) used in user scripts; `decorators/apply.ts` applies decorated metadata at runtime.
+- `rendering/` — post-process / rendering pipelines (SSR, SSAO, VLS, motion blur, TAA, default pipeline) shared between editor preview and exported game.
+- `cinematic/` — the cinematic/sequencer system (parsing, generation, events like `apply-impulse`/`set-enabled`).
+- `script.ts` — defines `IScript` (`onStart`/`onUpdate`/`onStop`), the contract every attached user script implements.
+
+### CLI (`cli/`)
+`babylonjs-editor-cli` (`bin/babylonjs-editor-cli.js`, built from `src/index.mts`) is a `commander`-based tool. Main subsystem is `pack/`:
+- `pack/pack.mts` — orchestrates packing a project for deployment.
+- `pack/scene.mts`, `pack/geometry.mts`, `pack/scripts.mts` — pack scenes, merge/export geometries, bundle scripts.
+- `pack/assets/` — per-asset-type processing (textures, KTX/KTX2 compression, materials, particle systems) plus `collect.mts`/`process.mts` orchestration.
+- `s3/s3.mts` — uploads packed output to S3-compatible storage.
+- `tools/workers/md5.mts` + `tools/worker.mts` — worker-thread helpers for hashing/processing.
+
+### MCP server (`mcp/`)
+`babylonjs-editor-mcp-server` (`src/index.mts`, request handling in `src/request.mts`) is a Model Context Protocol server that lets AI agents drive the editor: compose scenes from natural language, manage instances vs. clones for performance, write/attach TypeScript scripts, and verify results via screenshots. `mcp/specifications.md` is the authoritative feature spec — consult it before extending MCP capabilities, since it documents editor conventions (units in centimeters, glTF auto-scaling x100, clustered light container usage, instancing-over-cloning rules, etc.) that the agent-facing tools must respect.
+
+### Templates & website
+- `templates/*` are full starter projects (each its own `package.json`/lockfile) copied into new user projects; `electron/` is a special template for packaging a project as a standalone Electron app. Their `src/scripts.ts` is excluded from the root ESLint run.
+- `website/` is a standard Next.js app (App Router) with its own `documentation/` content tree mirrored from the editor's user-facing docs.
+
+## Code style
+
+- Formatting is enforced by Prettier (`prettier.config.mjs`): **tabs**, double quotes, semicolons, `printWidth: 180`, `arrowParens: "always"`.
+- TypeScript: `strictNullChecks`, `noUnusedLocals`/`noUnusedParameters`, decorators enabled (`experimentalDecorators`).
+- ESLint naming conventions: interfaces are `PascalCase` prefixed with `I` (e.g. `IEditorProject`), enum members `PascalCase`, private class members `camelCase` with a leading underscore, and `@typescript-eslint/explicit-member-accessibility` + the local `require-return-type-on-class-methods` rule mean every class method/member needs explicit `public`/`private` and a return type.
+
+## This fork (Akira2s/Editor)
+
+This checkout is a personal fork of `BabylonJS/Editor`, run from source. Rules for working on it:
+
+- Remotes: `origin` = `https://github.com/Akira2s/Editor`, `upstream` = `BabylonJS/Editor`. Commits are authored as Akira2s (GitHub noreply address).
+- Branches: `master` mirrors `upstream/master` (only fast-forward it, never commit there). Every change lives on its own small branch started from `master` (so it stays upstreamable): `feature/unity-controls`, `fix/scaling-shortcut-label`, `fix/assistant-terminal-copy`, `feature/assistant-threads`, `fix/scene-load-dialog`, `feature/scene-links-runtime`, `feature/create-prefab`, `feature/prefab-overrides`, `fork/docs`. **`akira` is `master` plus all of them merged and is what runs.** "Merge to main" means merge into `akira`. Rebuild `akira` from `master` after upstream updates; pushing it then needs `--force-with-lease`.
+- Ask before anything outward-facing: pushes, upstream issues/PRs. Never open an upstream PR unprompted.
+- What the fork adds: Unity-style viewport camera + Q/W/E/R/F shortcuts behind an Edit Preferences switch (`editor/src/editor/nodes/camera-unity-input.ts`, `camera-orbit-math.ts`); AI assistant terminal selection/copy (`assistant/terminal-clipboard.ts`); scene loads that can't leave their progress dialog open (`project/load/scene.ts`, `progress.tsx`); prefabs with Unity-style UX (scene assets instanced by scene links, per-instance overrides with Revert/Apply, Unpack, drag and drop: Create Prefab in the Graph, packed and instantiated at runtime by the fork's `tools`/`cli`, MCP `list_prefabs`/`create_prefab`/`instantiate_prefab`; projects install the fork's packages with `npm run use:editor-fork`); wheel changes the fly speed while the right button is held; AI assistant threads history (`assistant/threads.ts`, `threads-menu.tsx`, `conversations.ts`: per-project list in localStorage, each thread tied to one agent and resumed by its own conversation id).
+- Build gotchas on Windows: `yarn install --ignore-scripts` (node-pty needs the Visual Studio Spectre libs; its prebuilt binary is enough), then `node postinstall.mjs` at the root and `yarn postinstall` in `editor/`. `NoDefaultCurrentDirectoryInExePath` breaks `.bat` calls in node-gyp: unset it. Rebuild with `yarn build-editor` (plus build-tools/cli/mcp-server when those changed), start with `yarn start`.
+- Pitfalls found testing the prefab work through the DevTools port (scratch copy of a project, real mouse and keyboard events, then the packed scene in Chromium): `isNode()` throws on `null`/`undefined`, so guard before calling it; changing project files while the window loads makes the loader hang; reload a window only after resetting its files; some upstream files are CRLF in the index, so check `git diff --stat` after running Prettier; and an `Edit`/heredoc in a shell eats backslashes, so write scripts with a file tool.
+- Testing UI work: the editor opens a Chrome DevTools port on 127.0.0.1:8315 (hard-coded, so only one editor can be driven at a time). Drive it with the DevTools protocol (`Input.dispatchMouseEvent` / `dispatchKeyEvent`) against a scratch copy of a project, never the user's real one; assert on real state, not just types. `ipcRenderer.send("dashboard:open-project", path, false)` opens a project (passing `true` quits the app); `ipcRenderer.emit("editor:toggle-assistant")` opens the assistant.
+- Wider notes (branch table, update procedure): `D:/GenAI/tools/babylonjs-editor/README.md`.

@@ -54,18 +54,35 @@ const assumeYes = cliArgs.includes('--yes') || cliArgs.includes('-y');
 const interactive = Boolean(process.stdin.isTTY) && !assumeYes && !cliArgs.includes('--no-prompt');
 const rl = interactive ? readline.createInterface({ input: process.stdin, output: process.stdout }) : null;
 
-async function resolveDir(envKey, question, fallback) {
-  const known = process.env[envKey] ?? readEnvValue(envKey);
-  if (known) return known;
-  if (!rl) return fallback;
+function flagValue(name) {
+  const prefix = `--${name}=`;
+  const arg = cliArgs.find(a => a.startsWith(prefix));
+  return arg ? arg.slice(prefix.length).trim().replace(/^["']|["']$/g, '') || null : null;
+}
+
+const expandHome = p => path.resolve(p.replace(/^~(?=$|[\\/])/, os.homedir()));
+
+// A flag wins, then the environment, then the project's .env, then a question.
+// With no terminal to ask in, the default is used only when allowed: always for most folders, only with --yes for the fork,
+// so a scripted run never clones or reuses a checkout in a folder nobody chose. Returns null when no folder was chosen.
+async function resolveDir(flag, envKey, question, fallback, { defaultWhenUnasked = true } = {}) {
+  const known = flagValue(flag) ?? process.env[envKey] ?? readEnvValue(envKey);
+  if (known) return expandHome(known);
+  if (!rl) return assumeYes || defaultWhenUnasked ? fallback : null;
   const answer = (await rl.question(`  ${question}\n  [${fallback}] `)).trim().replace(/^["']|["']$/g, '');
-  return answer === '' ? fallback : path.resolve(answer.replace(/^~(?=$|[\\/])/, os.homedir()));
+  return answer === '' ? fallback : expandHome(answer);
 }
 
 if (interactive) console.log('Where should things live? Press Enter to accept the default.\n');
-const forkDir = await resolveDir('EDITOR_FORK_DIR', 'Folder of the Babylon.js Editor fork checkout (an existing one is reused, otherwise it is cloned here):', FORK_DEFAULT_DIR);
-const comfyRoot = await resolveDir('COMFYUI_ROOT', 'Folder of ComfyUI (used by the ComfyUI helper scripts):', COMFY_DEFAULT_DIR);
+const forkDir = await resolveDir('fork-dir', 'EDITOR_FORK_DIR', 'Folder of the Babylon.js Editor fork checkout (an existing one is reused, otherwise it is cloned here):', FORK_DEFAULT_DIR, { defaultWhenUnasked: false });
+const comfyRoot = await resolveDir('comfyui-dir', 'COMFYUI_ROOT', 'Folder of ComfyUI (used by the ComfyUI helper scripts):', COMFY_DEFAULT_DIR);
 if (interactive) console.log('');
+if (forkDir) {
+  console.log(`  📍 Editor fork folder: ${forkDir}`);
+} else {
+  console.log('  ⚠️  No folder chosen for the Editor fork, so it is skipped. Run in a terminal to be asked, or pass --fork-dir=<path>');
+  console.log('     (or set EDITOR_FORK_DIR, or pass --yes to accept the default).');
+}
 const FORK_URL = 'https://github.com/Akira2s/Editor.git';
 
 function has(cmd) {
@@ -96,7 +113,7 @@ function installUv() {
 }
 
 // Steps follow the fork README ("Setup gotchas"): --ignore-scripts avoids the node-pty build on Windows.
-// This installs the sources only; build and start the Editor app with the fork's own "Build Editor.cmd" / "Start Editor.cmd".
+// This installs the sources only; build and start the Editor app from the checkout with `yarn build-editor` and `yarn start`.
 function installFork() {
   fs.mkdirSync(path.dirname(forkDir), { recursive: true });
   execSync(`git clone --branch akira "${FORK_URL}" "${forkDir}"`, { stdio: 'inherit' });
@@ -108,13 +125,13 @@ function installFork() {
 const prerequisites = [
   { id: 'uv', label: 'uv / uvx (runs the Blender MCP server)', present: () => has('uvx'), install: installUv },
   { id: 'blender', label: 'Blender (needed by the Blender MCP)', present: hasBlender, install: null },
-  {
+  ...(forkDir ? [{
     id: 'fork',
     label: `Babylon.js Editor fork (Akira2s/Editor, branch akira) in ${forkDir}`,
     present: () => fs.existsSync(path.join(forkDir, 'tools/package.json')),
     install: installFork,
     requires: ['git', 'yarn']
-  }
+  }] : [])
 ];
 
 const selected = new Set();
@@ -2547,9 +2564,9 @@ for (const [relPath, content] of Object.entries(embeddedFiles)) {
 // ---------------------------------------------------------------------------
 // 11. Install NPM Packages & Run Preflight Doctor
 // ---------------------------------------------------------------------------
-setEnvValue('EDITOR_FORK_DIR', forkDir);
+if (forkDir) setEnvValue('EDITOR_FORK_DIR', forkDir);
 setEnvValue('COMFYUI_ROOT', comfyRoot);
-console.log('  ✅ Saved EDITOR_FORK_DIR and COMFYUI_ROOT in .env');
+console.log(`  ✅ Saved ${forkDir ? 'EDITOR_FORK_DIR and ' : ''}COMFYUI_ROOT in .env`);
 
 for (const p of prerequisites) {
   if (!selected.has(p.id) || !p.install) continue;
@@ -2569,11 +2586,15 @@ for (const p of prerequisites) {
 console.log('\n📦 Installing npm packages (Babylon.js 9, babylonjs-editor-tools/cli, Havok, sharp)...');
 try {
   execSync('npm install', { stdio: 'inherit' });
-  console.log('\n🧩 Installing the Editor fork runtime and packer (prefabs need them, see AGENT.md section 2b)...');
-  try {
-    execSync('node scripts/use-editor-fork.mjs', { stdio: 'inherit' });
-  } catch {
-    console.error('⚠️  Could not install the Editor fork packages. Check EDITOR_FORK_DIR in .env and re-run: npm run use:editor-fork');
+  if (forkDir) {
+    console.log('\n🧩 Installing the Editor fork runtime and packer (prefabs need them, see AGENT.md section 2b)...');
+    try {
+      execSync('node scripts/use-editor-fork.mjs', { stdio: 'inherit' });
+    } catch {
+      console.error('⚠️  Could not install the Editor fork packages. Check EDITOR_FORK_DIR in .env and re-run: npm run use:editor-fork');
+    }
+  } else {
+    console.log('\n⏭️  Skipped the Editor fork runtime and packer: set EDITOR_FORK_DIR in .env, then run: npm run use:editor-fork');
   }
   execSync('node scripts/doctor.mjs', { stdio: 'inherit' });
   console.log('\n🧊 Setting up Blender MCP...');

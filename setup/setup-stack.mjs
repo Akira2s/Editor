@@ -4,6 +4,7 @@ import os from 'os';
 import path from 'path';
 import { execSync } from 'child_process';
 import readline from 'readline/promises';
+import { fileURLToPath } from 'url';
 import { planComfyUI, runComfyUIPlan } from './comfyui-setup.mjs';
 
 const rootDir = process.cwd();
@@ -112,25 +113,96 @@ function installUv() {
   execSync(cmd, { stdio: 'inherit' });
 }
 
-// Steps follow the fork README ("Setup gotchas"): --ignore-scripts avoids the node-pty build on Windows.
-// This installs the sources only; build and start the Editor app from the checkout with `yarn build-editor` and `yarn start`.
+// git is needed to clone the fork and by `yarn install` itself (the lockfile has git dependencies). When it is not on PATH,
+// the copy bundled with GitHub Desktop (often the only git on a Windows machine) is put on PATH for this run.
+function ensureGit() {
+  if (has('git')) return true;
+  if (process.platform !== 'win32') return false;
+  const desktop = path.join(process.env.LOCALAPPDATA ?? '', 'GitHubDesktop');
+  if (!fs.existsSync(desktop)) return false;
+  const apps = fs.readdirSync(desktop).filter(d => d.startsWith('app-')).sort().reverse();
+  const dir = apps.map(d => path.join(desktop, d, 'resources', 'app', 'git', 'cmd')).find(p => fs.existsSync(path.join(p, 'git.exe')));
+  if (!dir) return false;
+  process.env.PATH = `${dir}${path.delimiter}${process.env.PATH}`;
+  console.log(`  ℹ️  Using the git bundled with GitHub Desktop: ${dir}`);
+  return true;
+}
+
+function installGit() {
+  const cmd = process.platform === 'win32'
+    ? 'winget install --id Git.Git -e --accept-package-agreements --accept-source-agreements'
+    : process.platform === 'darwin' ? 'brew install git' : null;
+  if (!cmd) throw new Error('Install git with your package manager.');
+  execSync(cmd, { stdio: 'inherit' });
+}
+
+// The fork is a yarn classic workspace: its own scripts call `yarn` (postinstall.mjs runs `yarn pack`), so yarn must be on PATH.
+function installYarn() {
+  execSync('npm install -g yarn@1.22.22', { stdio: 'inherit' });
+  const prefix = execSync('npm prefix -g', { encoding: 'utf-8' }).trim();
+  process.env.PATH = `${process.platform === 'win32' ? prefix : path.join(prefix, 'bin')}${path.delimiter}${process.env.PATH}`;
+}
+
+const forkCheckedOut = () => Boolean(forkDir) && fs.existsSync(path.join(forkDir, 'tools/package.json'));
+const forkInstalled = () => forkCheckedOut() && fs.existsSync(path.join(forkDir, 'editor/node_modules')) && fs.existsSync(path.join(forkDir, 'node_modules/electron/path.txt'));
+
+// node-gyp's .bat calls fail when NoDefaultCurrentDirectoryInExePath is set (some Windows machines set it machine-wide).
+function forkEnv() {
+  const env = { ...process.env };
+  for (const key of Object.keys(env)) if (key.toLowerCase() === 'nodefaultcurrentdirectoryinexepath') delete env[key];
+  return env;
+}
+
+// Steps follow AGENT.md ("Build gotchas on Windows"): --ignore-scripts avoids the node-pty build, its prebuilt binary is enough.
+// An existing checkout without dependencies is installed in place rather than cloned again.
 function installFork() {
-  fs.mkdirSync(path.dirname(forkDir), { recursive: true });
-  execSync(`git clone --branch akira "${FORK_URL}" "${forkDir}"`, { stdio: 'inherit' });
-  execSync('yarn install --ignore-scripts', { cwd: forkDir, stdio: 'inherit' });
-  execSync('node postinstall.mjs', { cwd: forkDir, stdio: 'inherit' });
-  execSync('yarn postinstall', { cwd: path.join(forkDir, 'editor'), stdio: 'inherit' });
+  if (!forkCheckedOut()) {
+    if (fs.existsSync(forkDir) && fs.readdirSync(forkDir).length > 0) throw new Error(`${forkDir} exists and is not a checkout of the Editor fork; pick another folder.`);
+    fs.mkdirSync(path.dirname(forkDir), { recursive: true });
+    execSync(`git clone --branch akira "${FORK_URL}" "${forkDir}"`, { stdio: 'inherit' });
+  }
+  const env = forkEnv();
+  execSync('yarn install --ignore-scripts', { cwd: forkDir, stdio: 'inherit', env });
+  // --ignore-scripts also skips Electron's own install script, which downloads the Electron app itself.
+  execSync('node node_modules/electron/install.js', { cwd: forkDir, stdio: 'inherit', env });
+  execSync('node postinstall.mjs', { cwd: forkDir, stdio: 'inherit', env });
+  execSync('yarn postinstall', { cwd: path.join(forkDir, 'editor'), stdio: 'inherit', env });
+}
+
+// Windows launchers (build-editor.bat, start-editor.bat) live in setup/fork/ and are copied to the checkout root, untracked:
+// they are listed in the checkout's .git/info/exclude so they never end up in a commit or an upstream PR.
+const LAUNCHERS = ['build-editor.bat', 'start-editor.bat'];
+
+function installLaunchers() {
+  const source = path.join(path.dirname(fileURLToPath(import.meta.url)), 'fork');
+  for (const name of LAUNCHERS) {
+    const target = path.join(forkDir, name);
+    if (fs.existsSync(target)) continue;
+    fs.copyFileSync(path.join(source, name), target);
+    console.log(`  ✅ Added ${name} to ${forkDir}`);
+  }
+  const exclude = path.join(forkDir, '.git', 'info', 'exclude');
+  if (!fs.existsSync(path.join(forkDir, '.git'))) return;
+  fs.mkdirSync(path.dirname(exclude), { recursive: true });
+  const current = fs.existsSync(exclude) ? fs.readFileSync(exclude, 'utf-8') : '';
+  const absent = LAUNCHERS.map(n => `/${n}`).filter(line => !current.split(/\r?\n/).includes(line));
+  if (absent.length > 0) fs.appendFileSync(exclude, `${current.endsWith('\n') || current === '' ? '' : '\n'}\n# Local launcher scripts (setup-stack.mjs)\n${absent.join('\n')}\n`);
 }
 
 const prerequisites = [
   { id: 'uv', label: 'uv / uvx (runs the Blender MCP server)', present: () => has('uvx'), install: installUv },
   { id: 'blender', label: 'Blender (needed by the Blender MCP)', present: hasBlender, install: null },
+  // Only asked for when the fork still has to be cloned or installed.
+  ...(forkDir && !forkInstalled() ? [{ id: 'yarn', label: 'yarn classic (installs and builds the Editor fork)', present: () => has('yarn'), install: installYarn }] : []),
+  ...(forkDir && !forkInstalled() ? [{ id: 'git', label: 'git (clones and installs the Editor fork)', present: ensureGit, install: installGit }] : []),
   ...(forkDir ? [{
     id: 'fork',
-    label: `Babylon.js Editor fork (Akira2s/Editor, branch akira) in ${forkDir}`,
-    present: () => fs.existsSync(path.join(forkDir, 'tools/package.json')),
+    label: forkCheckedOut()
+      ? `dependencies of the Babylon.js Editor fork checkout in ${forkDir}`
+      : `Babylon.js Editor fork (Akira2s/Editor, branch akira), cloned into ${forkDir}`,
+    present: forkInstalled,
     install: installFork,
-    requires: ['git', 'yarn']
+    missing: () => [...(has('yarn') ? [] : ['yarn']), ...(ensureGit() ? [] : ['git'])]
   }] : [])
 ];
 
@@ -2570,9 +2642,9 @@ console.log(`  ✅ Saved ${forkDir ? 'EDITOR_FORK_DIR and ' : ''}COMFYUI_ROOT in
 
 for (const p of prerequisites) {
   if (!selected.has(p.id) || !p.install) continue;
-  const absent = (p.requires ?? []).filter(cmd => !has(cmd));
+  const absent = p.missing?.() ?? [];
   if (absent.length > 0) {
-    console.error(`⚠️  Skipping ${p.id}: needs ${absent.join(', ')} on PATH first.`);
+    console.error(`⚠️  Skipping ${p.id}: needs ${absent.join(', ')} first.`);
     continue;
   }
   console.log(`\n⬇️  Installing ${p.label}...`);
@@ -2581,6 +2653,13 @@ for (const p of prerequisites) {
   } catch (err) {
     console.error(`⚠️  Could not install ${p.id}: ${err.message}`);
   }
+}
+
+if (forkCheckedOut()) {
+  if (process.platform === 'win32') installLaunchers();
+  console.log(forkInstalled()
+    ? `\n🛠️  Editor fork ready in ${forkDir}. Build it with ${process.platform === 'win32' ? 'build-editor.bat' : 'yarn build-tools && yarn build-cli && yarn build-editor'}, start it with ${process.platform === 'win32' ? 'start-editor.bat' : 'yarn start'}.`
+    : `\n⚠️  The Editor fork in ${forkDir} has no dependencies yet. Re-run this setup, or follow AGENT.md "Build gotchas on Windows".`);
 }
 
 console.log('\n📦 Installing npm packages (Babylon.js 9, babylonjs-editor-tools/cli, Havok, sharp)...');

@@ -75,6 +75,8 @@ import { isAbstractMesh, isAnyTransformNode, isCamera, isCollisionInstancedMesh,
 
 import { EditorCamera } from "../nodes/camera";
 
+import { attachViewModeToScene, registerViewModePlugin } from "../rendering/view-mode";
+
 import { saveRenderingConfigurationForCamera } from "../rendering/tools";
 import { disposeVLSPostProcess, parseVLSPostProcess, vlsPostProcessCameraConfigurations } from "../rendering/vls";
 import { disposeTAARenderingPipeline, parseTAARenderingPipeline, taaPipelineCameraConfigurations } from "../rendering/taa";
@@ -96,6 +98,7 @@ import { EditorPreviewAxisHelper } from "./preview/axis";
 import { EditorPreviewPlayComponent } from "./preview/play";
 
 import { EditorPreviewGizmo } from "./preview/gizmo/gizmo";
+import { EditorPreviewViewMode } from "./preview/view-mode";
 import { EditorPreviewGizmoSettings } from "./preview/gizmo/settings";
 
 import { Stats } from "./preview/stats/stats";
@@ -560,7 +563,10 @@ export class EditorPreview extends Component<IEditorPreviewProps, IEditorPreview
 		this.engine.disableContextMenu = false;
 		this.engine.inputElement = this.canvas;
 
+		registerViewModePlugin();
+
 		this.scene = new Scene(this.engine);
+		attachViewModeToScene(this.scene);
 		this.scene.autoClear = true;
 		this.scene.skipPointerUpPicking = true;
 		this.scene.skipPointerDownPicking = true;
@@ -1016,6 +1022,8 @@ export class EditorPreview extends Component<IEditorPreviewProps, IEditorPreview
 						</TooltipTrigger>
 						<TooltipContent>Toggle wireframe</TooltipContent>
 					</Tooltip>
+
+					<EditorPreviewViewMode />
 
 					<Separator orientation="vertical" className="mx-1 h-[24px]" />
 

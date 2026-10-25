@@ -41,7 +41,8 @@ try {
 }
 
 // Enable remote debugging of both the Editor and the edited Project.
-app.commandLine.appendSwitch("remote-debugging-port", "8315");
+// BABYLONJS_EDITOR_DEBUG_PORT lets a second instance (tests, automation) run next to the one that is in use.
+app.commandLine.appendSwitch("remote-debugging-port", process.env.BABYLONJS_EDITOR_DEBUG_PORT ?? "8315");
 
 // Force dedicated GPU on systems with dual graphics cards (typically laptops).
 app.commandLine.appendSwitch("force_high_performance_gpu");

@@ -1,7 +1,7 @@
 import { join } from "path/posix";
 import { pathExists, readJSON, writeJSON } from "fs-extra";
 
-import { IPrefabNodeOverride, PrefabOverrides } from "./prefab-overrides";
+import { IPrefabNodeOverride, mergePrefabScripts, PrefabOverrides } from "./prefab-overrides";
 
 /**
  * Defines the folders of a scene asset that hold nodes, and the way each file stores the data of a node: a mesh file holds the mesh in
@@ -36,7 +36,7 @@ function patchNodeData(data: any, override: IPrefabNodeOverride): void {
 
 	if (override.scripts) {
 		data.metadata ??= {};
-		data.metadata.scripts = JSON.parse(JSON.stringify(override.scripts));
+		data.metadata.scripts = mergePrefabScripts(data.metadata.scripts, override.scripts);
 	}
 }
 

@@ -14,6 +14,7 @@ import {
 	IPrefabOverrideEntry,
 	listPrefabOverrideEntries,
 	mergePrefabOverrideEntries,
+	normalizePrefabNodeOverride,
 	PrefabOverrides,
 	snapshotPrefabNode,
 } from "../../tools/scene/prefab-overrides";
@@ -135,9 +136,22 @@ export class SceneLinkNode extends TransformNode {
 		});
 
 		this._captureBaselines();
+		this._normalizeOverrides();
 		this._applyOverrides();
 
 		return this._lastLoadResult;
+	}
+
+	// Overrides made by older versions hold all the scripts of the node: only what differs from the prefab is kept.
+	private _normalizeOverrides(): void {
+		const source = this._isEditingInPlace ? this._overridesBeforeEditing : this._overrides;
+
+		Object.entries(source).forEach(([id, override]) => {
+			const baseline = this._baselines.get(id);
+			if (baseline && override.scripts) {
+				source[id] = normalizePrefabNodeOverride(baseline, override);
+			}
+		});
 	}
 
 	private _applyOverrides(): void {
@@ -300,7 +314,7 @@ export class SceneLinkNode extends TransformNode {
 				return;
 			}
 
-			applyPrefabNodeOverride(prefabNode, baseline);
+			applyPrefabNodeOverride(prefabNode, baseline, true);
 			if (!baseline.scripts && prefabNode.metadata?.scripts) {
 				prefabNode.metadata.scripts = [];
 			}

@@ -31,8 +31,49 @@ export class SceneLinkNode extends TransformNode {
 	private _baselines: Map<string, IPrefabNodeOverride> = new Map<string, IPrefabNodeOverride>();
 	private _prefabNodes: Map<string, Node> = new Map<string, Node>();
 
+	// Set while the prefab is edited in place: the nodes it shows are the prefab itself, not an instance of it.
+	private _isEditingInPlace: boolean = false;
+	// What this instance overrides, kept aside while the prefab is edited in place.
+	private _overridesBeforeEditing: PrefabOverrides = {};
+
 	@serialize()
 	private _relativePath: string | null = null;
+
+	/**
+	 * Returns wether or not the prefab this link shows is edited in place: its nodes are edited like the nodes of the scene and the instance
+	 * does not override anything meanwhile.
+	 */
+	public get isEditingInPlace(): boolean {
+		return this._isEditingInPlace;
+	}
+
+	/**
+	 * Starts editing the prefab in place: the nodes show the prefab (the overrides of the instance are kept aside) and can be edited.
+	 */
+	public beginEditingInPlace(): void {
+		if (this._isEditingInPlace) {
+			return;
+		}
+
+		this._overridesBeforeEditing = this.getOverrides();
+		this.revertOverrides();
+		this._isEditingInPlace = true;
+	}
+
+	/**
+	 * Stops editing the prefab in place: the overrides of the instance apply again on the nodes (call it once they show the prefab as saved).
+	 */
+	public endEditingInPlace(): void {
+		if (!this._isEditingInPlace) {
+			return;
+		}
+
+		this._isEditingInPlace = false;
+		this._overrides = this._overridesBeforeEditing;
+		this._overridesBeforeEditing = {};
+
+		this._applyOverrides();
+	}
 
 	public get relativePath(): string | null {
 		return this._relativePath;
@@ -72,7 +113,7 @@ export class SceneLinkNode extends TransformNode {
 			return null;
 		}
 
-		// What the instance changed is kept through the reload.
+		// What the instance changed is kept through the reload (while editing in place, what was set aside).
 		this._overrides = this.getOverrides();
 
 		this._disposeLastLoadResult();
@@ -100,6 +141,10 @@ export class SceneLinkNode extends TransformNode {
 	}
 
 	private _applyOverrides(): void {
+		if (this._isEditingInPlace) {
+			return;
+		}
+
 		Object.entries(this._overrides).forEach(([id, override]) => {
 			const node = this._prefabNodes.get(id);
 			if (node) {
@@ -137,6 +182,10 @@ export class SceneLinkNode extends TransformNode {
 	 * Returns what this instance changes on the nodes of the prefab, keyed by the id of the nodes in the prefab.
 	 */
 	public getOverrides(): PrefabOverrides {
+		if (this._isEditingInPlace) {
+			return this._overridesBeforeEditing;
+		}
+
 		const overrides: PrefabOverrides = {};
 
 		// The overrides of nodes the prefab doesn't have (anymore) are kept: the prefab may come back.
@@ -160,6 +209,10 @@ export class SceneLinkNode extends TransformNode {
 	 * Returns the override of the given node of the prefab, or null when the instance doesn't change it.
 	 */
 	public getNodeOverride(node: Node): IPrefabNodeOverride | null {
+		if (this._isEditingInPlace) {
+			return null;
+		}
+
 		const baseline = this._baselines.get(node.id);
 		return baseline && this._prefabNodes.get(node.id) === node ? diffPrefabNode(baseline, snapshotPrefabNode(node)) : null;
 	}
@@ -168,6 +221,10 @@ export class SceneLinkNode extends TransformNode {
 	 * Returns what this instance changes on the given node of the prefab, one entry per property (position, a value of a script...).
 	 */
 	public getOverrideEntries(node: Node): IPrefabOverrideEntry[] {
+		if (this._isEditingInPlace) {
+			return [];
+		}
+
 		const baseline = this._baselines.get(node.id);
 		return baseline && this._prefabNodes.get(node.id) === node ? listPrefabOverrideEntries(baseline, snapshotPrefabNode(node)) : [];
 	}
@@ -232,6 +289,10 @@ export class SceneLinkNode extends TransformNode {
 	 */
 	public revertOverrides(node?: Node): Node[] {
 		const reverted: Node[] = [];
+
+		if (this._isEditingInPlace) {
+			return reverted;
+		}
 
 		(node ? [node] : Array.from(this._prefabNodes.values())).forEach((prefabNode) => {
 			const baseline = this._baselines.get(prefabNode.id);

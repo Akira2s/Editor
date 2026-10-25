@@ -45,7 +45,12 @@ export function isFromSceneLink(node: Node) {
  * Returns whether or not the given node is part of what a scene link shows (a node of the prefab), the link itself not being.
  */
 export function isSceneLinkContent(node: Node): boolean {
-	return node.parent ? isFromSceneLink(node.parent) : false;
+	if (!node.parent || !isFromSceneLink(node.parent)) {
+		return false;
+	}
+
+	// The content of a prefab edited in place is edited like any other node.
+	return !(getRootSceneLink(node) as { isEditingInPlace?: boolean } | null)?.isEditingInPlace;
 }
 
 /**

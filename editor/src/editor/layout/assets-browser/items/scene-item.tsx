@@ -28,7 +28,7 @@ export class AssetBrowserSceneItem extends AssetsBrowserItem {
 					<HiOutlineDuplicate className="w-5 h-5" /> Duplicate
 				</ContextMenuItem>
 				<ContextMenuItem className="flex items-center gap-2" onClick={() => this._handleEdit()}>
-					<HiOutlineExternalLink className="w-5 h-5" /> Edit...
+					<HiOutlineExternalLink className="w-5 h-5" /> Open in New Window
 				</ContextMenuItem>
 				<ContextMenuSeparator />
 				<ContextMenuCheckboxItem checked={this._doNotExport} onClick={() => this._handleDoNotExport()}>

@@ -344,11 +344,26 @@ export function openPrefab(editor: Editor, link: SceneLinkNode): void {
 		return;
 	}
 
+	openPrefabWindow(editor, join(dirname(projectConfiguration.path), link.relativePath));
+}
+
+/**
+ * Opens the given scene asset (a prefab) in its own window, next to the scene being edited.
+ * @param absolutePath defines the absolute path of the scene asset (.scene).
+ */
+export function openPrefabWindow(editor: Editor, absolutePath: string): void {
 	ipcRenderer.send("window:open", "build/src/editor/windows/scene", {
 		appPath: editor.path,
-		scenePath: join(dirname(projectConfiguration.path), link.relativePath),
+		scenePath: absolutePath,
 		projectPath: editor.state.projectPath,
 	});
+}
+
+/**
+ * Returns wether or not the given scene asset is a prefab, that is lives in a "prefabs" folder.
+ */
+export function isPrefabAsset(absolutePath: string): boolean {
+	return absolutePath.split(/[\\/]/).includes("prefabs");
 }
 
 /**

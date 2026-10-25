@@ -34,6 +34,7 @@ import { getSpriteCommands } from "../../dialogs/command-palette/sprite";
 import { registerUndoRedo } from "../../../tools/undoredo";
 
 import { applyOverridesToPrefab, createPrefabFromNodes, getPrefabRoots, openPrefab, revealPrefab, unpackSceneLink } from "../../../tools/scene/prefab";
+import { editPrefabInPlace } from "../../../tools/scene/prefab-edit";
 import { getRootSceneLink, isSceneLinkContent } from "../../../tools/scene/scene-link";
 import { SceneLinkNode } from "../../nodes/scene-link";
 import { waitNextAnimationFrame } from "../../../tools/tools";
@@ -435,7 +436,10 @@ export class EditorGraphContextMenu extends Component<IEditorGraphContextMenuPro
 
 		return (
 			<>
-				<ContextMenuItem onClick={() => openPrefab(this.props.editor, link)}>Open Prefab</ContextMenuItem>
+				<ContextMenuItem disabled={link.isEditingInPlace} onClick={() => editPrefabInPlace(this.props.editor, link)}>
+					Edit Prefab In Place
+				</ContextMenuItem>
+				<ContextMenuItem onClick={() => openPrefab(this.props.editor, link)}>Open Prefab in New Window</ContextMenuItem>
 				<ContextMenuItem onClick={() => revealPrefab(this.props.editor, link)}>Show Prefab in Assets</ContextMenuItem>
 				<ContextMenuItem
 					onClick={() => {

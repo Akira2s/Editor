@@ -17,6 +17,7 @@ import { getBufferSceneScreenshot } from "../../tools/scene/screenshot";
 import { createDirectoryIfNotExist, normalizedGlob } from "../../tools/fs";
 import { isSpriteManagerNode, isSpriteMapNode } from "../../tools/guards/sprites";
 import { serializePhysicsAggregate } from "../../tools/physics/serialization/aggregate";
+import { suspendPrefabDimming } from "../../tools/scene/prefab-dimming";
 import { isAnimationGroupFromSceneLink, isFromSceneLink } from "../../tools/scene/scene-link";
 import { isGPUParticleSystem, isNodeParticleSystemSetMesh, isParticleSystem } from "../../tools/guards/particles";
 import {
@@ -76,9 +77,25 @@ export interface ISaveSceneOptions {
 	 * accepts are saved. Used to save a part of the scene as a scene asset (a prefab).
 	 */
 	filter?: (node: Node) => boolean;
+	/**
+	 * Defines wether or not the animation groups of the scene links are saved too (the filter still applies). Used to save the content of
+	 * a prefab edited in place, whose nodes are the ones the scene link shows.
+	 */
+	includeSceneLinkAnimationGroups?: boolean;
 }
 
 export async function saveScene(editor: Editor, projectPath: string, scenePath: string, options?: ISaveSceneOptions): Promise<void> {
+	// The objects greyed out while a prefab is edited in place are not saved translucent.
+	const resumeDimming = suspendPrefabDimming();
+
+	try {
+		return await saveSceneContent(editor, projectPath, scenePath, options);
+	} finally {
+		resumeDimming();
+	}
+}
+
+async function saveSceneContent(editor: Editor, projectPath: string, scenePath: string, options?: ISaveSceneOptions): Promise<void> {
 	const fStat = await stat(scenePath);
 	if (!fStat.isDirectory()) {
 		return editor.layout.console.error("The scene path is not a directory.");
@@ -745,7 +762,7 @@ export async function saveScene(editor: Editor, projectPath: string, scenePath: 
 	// Write animation groups
 	await Promise.all(
 		scene.animationGroups?.map(async (animationGroup) => {
-			if (isAnimationGroupFromSceneLink(animationGroup)) {
+			if (isAnimationGroupFromSceneLink(animationGroup) && !options?.includeSceneLinkAnimationGroups) {
 				return;
 			}
 

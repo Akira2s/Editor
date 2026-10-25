@@ -33,7 +33,8 @@ import { execNodePty } from "../../tools/node-pty";
 import { clearUndoRedo } from "../../tools/undoredo";
 import { isTexture } from "../../tools/guards/texture";
 import { renameScene } from "../../tools/scene/rename";
-import { createPrefabFromNodes } from "../../tools/scene/prefab";
+import { createPrefabFromNodes, isPrefabAsset, openPrefabWindow } from "../../tools/scene/prefab";
+import { editPrefabInPlace, findPrefabInstanceToEdit } from "../../tools/scene/prefab-edit";
 import { isSoundNode } from "../../tools/guards/sound";
 import { openMultipleFilesDialog } from "../../tools/dialog";
 import { onSelectedAssetChanged } from "../../tools/observables";
@@ -1527,7 +1528,15 @@ export class EditorAssetsBrowser extends Component<IEditorAssetsBrowserProps, IE
 		if (item.state.isDirectory) {
 			const extension = extname(item.props.absolutePath).toLowerCase();
 			if (extension === ".scene") {
-				this._handleLoadScene(item.props.absolutePath);
+				// A prefab of the scene is edited in place, any other one in its own window: the scene being edited is not closed.
+				const instance = findPrefabInstanceToEdit(this.props.editor, item.props.absolutePath);
+				if (instance) {
+					editPrefabInPlace(this.props.editor, instance);
+				} else if (isPrefabAsset(item.props.absolutePath)) {
+					openPrefabWindow(this.props.editor, item.props.absolutePath);
+				} else {
+					this._handleLoadScene(item.props.absolutePath);
+				}
 			} else if (!directoryPackagesExtensions.includes(extension)) {
 				this.setBrowsePath(item.props.absolutePath);
 			}

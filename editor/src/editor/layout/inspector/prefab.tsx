@@ -10,6 +10,7 @@ import { onNodeModifiedObservable } from "../../../tools/observables";
 import { getPrefabOverrideProperties } from "../../../tools/scene/prefab-overrides";
 import { getRootSceneLink } from "../../../tools/scene/scene-link";
 import { applyOverridesToPrefab, openPrefab } from "../../../tools/scene/prefab";
+import { editPrefabInPlace } from "../../../tools/scene/prefab-edit";
 
 import { EditorPrefabOverridesMenu } from "./prefab-overrides";
 
@@ -57,6 +58,18 @@ export function EditorPrefabNodeBanner(props: IEditorPrefabNodeBannerProps) {
 	}
 
 	const sceneLink = link as SceneLinkNode;
+
+	if (sceneLink.isEditingInPlace) {
+		return (
+			<div className="flex items-center gap-2 w-full p-2 rounded-lg bg-amber-500/10 border border-amber-500/30 text-sm text-amber-400">
+				<FaLink className="w-4 h-4 shrink-0" />
+				<div className="flex-1 min-w-0">
+					Editing prefab <b>{sceneLink.name}</b> in place: what you change here is the prefab itself.
+				</div>
+			</div>
+		);
+	}
+
 	const override = sceneLink.getNodeOverride(props.node);
 	const properties = override ? getPrefabOverrideProperties(override) : [];
 
@@ -73,7 +86,10 @@ export function EditorPrefabNodeBanner(props: IEditorPrefabNodeBannerProps) {
 					Part of prefab <b>{sceneLink.name}</b>
 				</div>
 				<EditorPrefabOverridesMenu editor={props.editor} instance={sceneLink} node={props.node} />
-				<Button variant="ghost" size="sm" onClick={() => openPrefab(props.editor, sceneLink)}>
+				<Button variant="ghost" size="sm" title="Edit the prefab here, in the scene" onClick={() => editPrefabInPlace(props.editor, sceneLink)}>
+					Edit
+				</Button>
+				<Button variant="ghost" size="sm" title="Open the prefab in its own window" onClick={() => openPrefab(props.editor, sceneLink)}>
 					Open
 				</Button>
 			</div>

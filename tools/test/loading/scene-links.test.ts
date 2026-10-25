@@ -184,7 +184,29 @@ describe("loading/script/scene-links", () => {
 		expect((b.getChildren()[0] as TransformNode).isEnabled(false)).toBe(true);
 	});
 
-	test("an override of a script replaces the scripts of the node", () => {
+	test("an override of a script changes only the values it holds", () => {
+		const node = new TransformNode("n", scene);
+		node.metadata = {
+			scripts: [
+				{ key: "scripts/a.ts", enabled: true, values: { speed: { type: "number", value: 1 }, label: { type: "string", value: "prefab" } } },
+				{ key: "scripts/b.ts", enabled: true },
+			],
+		};
+
+		applyPrefabNodeOverride(node, {
+			scripts: [
+				{ key: "scripts/a.ts", values: { speed: { type: "number", value: 9 } } },
+				{ key: "scripts/b.ts", remove: true },
+				{ key: "scripts/c.ts", enabled: true, values: {} },
+			],
+		});
+
+		expect(node.metadata.scripts.map((s: any) => s.key)).toEqual(["scripts/a.ts", "scripts/c.ts"]);
+		expect(node.metadata.scripts[0].values.speed.value).toBe(9);
+		expect(node.metadata.scripts[0].values.label.value).toBe("prefab");
+	});
+
+	test("a whole script in an override (the older format) sets its values", () => {
 		setup();
 
 		const node = new TransformNode("n", scene);

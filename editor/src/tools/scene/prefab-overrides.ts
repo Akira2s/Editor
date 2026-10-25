@@ -11,6 +11,11 @@ export interface IPrefabNodeOverride {
 	scaling?: number[];
 	isEnabled?: boolean;
 	isVisible?: boolean;
+	/**
+	 * What the instance changes in the scripts of the node, per script (found by its key): `enabled`, `values` (the Inspector values that
+	 * are changed, by property), `remove` for a script of the prefab the instance doesn't have. A script the prefab doesn't have is stored as
+	 * a whole. Only what differs is stored, so that the other values keep following the prefab (@see mergePrefabScripts).
+	 */
 	scripts?: any[];
 }
 
@@ -104,8 +109,9 @@ export function diffPrefabNode(baseline: IPrefabNodeOverride, current: IPrefabNo
 	}
 
 	// Only what the user can change counts: the Inspector rewrites the descriptions and types of the values of a script when it shows them.
-	if (diffPrefabScripts(baseline.scripts, current.scripts).length) {
-		diff.scripts = current.scripts ?? [];
+	const scriptPatches = buildPrefabScriptPatches(baseline.scripts, current.scripts);
+	if (scriptPatches.length) {
+		diff.scripts = scriptPatches;
 	}
 
 	return Object.keys(diff).length ? diff : null;
@@ -115,8 +121,9 @@ export function diffPrefabNode(baseline: IPrefabNodeOverride, current: IPrefabNo
  * Applies the given override (or snapshot) on the given node.
  * @param node defines the node to change.
  * @param override defines the properties to set.
+ * @param replaceScripts defines wether the scripts of the override replace the ones of the node, instead of being the changes to make on them.
  */
-export function applyPrefabNodeOverride(node: Node, override: IPrefabNodeOverride): void {
+export function applyPrefabNodeOverride(node: Node, override: IPrefabNodeOverride, replaceScripts: boolean = false): void {
 	const transformNode = node as TransformNode;
 
 	if (override.position && transformNode.position) {
@@ -144,7 +151,7 @@ export function applyPrefabNodeOverride(node: Node, override: IPrefabNodeOverrid
 
 	if (override.scripts) {
 		node.metadata ??= {};
-		node.metadata.scripts = JSON.parse(JSON.stringify(override.scripts));
+		node.metadata.scripts = replaceScripts ? JSON.parse(JSON.stringify(override.scripts)) : mergePrefabScripts(node.metadata.scripts, override.scripts);
 	}
 }
 
@@ -366,4 +373,108 @@ function splitScriptEntryId(id: string): [string, string | undefined] {
  */
 export function getScriptValueEntryId(scriptKey: string, valueName: string): string {
 	return `${scriptPrefix}${scriptKey}:${valueName}`;
+}
+
+/**
+ * Returns the given scripts of a node with the changes of an override applied (@see IPrefabNodeOverride.scripts). The same is done by the
+ * runtime of the game.
+ * @param scripts defines the scripts the prefab attaches to the node.
+ * @param patches defines what the instance changes in them.
+ */
+export function mergePrefabScripts(scripts: any[] | undefined, patches: any[]): any[] {
+	const result: any[] = JSON.parse(JSON.stringify(scripts ?? []));
+
+	patches.forEach((patch) => {
+		const index = result.findIndex((script) => script.key === patch.key);
+
+		if (patch.remove) {
+			if (index !== -1) {
+				result.splice(index, 1);
+			}
+
+			return;
+		}
+
+		if (index === -1) {
+			result.push(JSON.parse(JSON.stringify(patch)));
+			return;
+		}
+
+		const script = result[index];
+
+		if (patch.enabled !== undefined) {
+			script.enabled = patch.enabled;
+		}
+
+		if (patch.values) {
+			script.values ??= {};
+			Object.entries(patch.values).forEach(([name, value]) => (script.values[name] = JSON.parse(JSON.stringify(value))));
+		}
+	});
+
+	return result;
+}
+
+/**
+ * Returns what to change in the scripts the prefab attaches to a node to get the scripts the instance has: only the values that differ.
+ */
+export function buildPrefabScriptPatches(before: any[] | undefined, after: any[] | undefined): any[] {
+	const patches: any[] = [];
+
+	(before ?? []).forEach((script) => {
+		if (!findScript(after, script.key)) {
+			patches.push({ key: script.key, remove: true });
+		}
+	});
+
+	(after ?? []).forEach((script) => {
+		const was = findScript(before, script.key);
+		if (!was) {
+			patches.push(JSON.parse(JSON.stringify(script)));
+			return;
+		}
+
+		const patch: any = { key: script.key };
+
+		if (!!was.enabled !== !!script.enabled) {
+			patch.enabled = !!script.enabled;
+		}
+
+		const names = new Set<string>([...Object.keys(was.values ?? {}), ...Object.keys(script.values ?? {})]);
+		names.forEach((name) => {
+			if (script.values?.[name] && !sameJson(was.values?.[name]?.value, script.values[name].value)) {
+				patch.values ??= {};
+				patch.values[name] = JSON.parse(JSON.stringify(script.values[name]));
+			}
+		});
+
+		if (patch.enabled !== undefined || patch.values) {
+			patches.push(patch);
+		}
+	});
+
+	return patches;
+}
+
+/**
+ * Overrides saved by older versions held the whole scripts of the node: it is reduced to what differs from the prefab, so that the
+ * values the instance didn't change follow the prefab again.
+ * @param baseline defines the node as the prefab defines it.
+ * @param override defines the override of the instance for the node.
+ */
+export function normalizePrefabNodeOverride(baseline: IPrefabNodeOverride, override: IPrefabNodeOverride): IPrefabNodeOverride {
+	if (!override.scripts) {
+		return override;
+	}
+
+	const patches = buildPrefabScriptPatches(baseline.scripts, mergePrefabScripts(baseline.scripts, override.scripts));
+	const result = { ...override };
+
+	if (patches.length) {
+		result.scripts = patches;
+	} else {
+		delete result.scripts;
+	}
+
+	return result;
 }

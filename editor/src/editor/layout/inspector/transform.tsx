@@ -9,6 +9,7 @@ import { isSceneLinkNode } from "../../../tools/guards/scene";
 import { onNodeModifiedObservable } from "../../../tools/observables";
 
 import { applyOverridesToPrefab, openPrefab, unpackSceneLink } from "../../../tools/scene/prefab";
+import { editPrefabInPlace } from "../../../tools/scene/prefab-edit";
 
 import { EditorInspectorStringField } from "./fields/string";
 import { EditorPrefabOverridesMenu, PrefabOverrideMark } from "./prefab-overrides";
@@ -60,7 +61,16 @@ export class EditorTransformNodeInspector extends Component<IEditorInspectorImpl
 							<div className="flex-1 min-w-0 text-sm truncate" title={sceneLink.relativePath ?? ""}>
 								{sceneLink.relativePath ?? "No scene linked"}
 							</div>
-							<Button variant="secondary" size="sm" disabled={!sceneLink.relativePath} onClick={() => this._openPrefab()}>
+							<Button
+								variant="secondary"
+								size="sm"
+								disabled={!sceneLink.relativePath || sceneLink.isEditingInPlace}
+								title="Edit the prefab here, in the scene"
+								onClick={() => editPrefabInPlace(this.props.editor, sceneLink)}
+							>
+								Edit
+							</Button>
+							<Button variant="ghost" size="sm" disabled={!sceneLink.relativePath} title="Open the prefab in its own window" onClick={() => this._openPrefab()}>
 								Open
 							</Button>
 							<Button variant="ghost" size="sm" disabled={!sceneLink.relativePath} onClick={() => sceneLink.reload()}>

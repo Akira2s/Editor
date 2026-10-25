@@ -96,6 +96,7 @@ import { EditorPreviewAxisHelper } from "./preview/axis";
 import { EditorPreviewPlayComponent } from "./preview/play";
 
 import { EditorPreviewGizmo } from "./preview/gizmo/gizmo";
+import { EditorPrefabEditBar } from "./preview/prefab-edit-bar";
 import { EditorPreviewGizmoSettings } from "./preview/gizmo/settings";
 
 import { Stats } from "./preview/stats/stats";
@@ -249,6 +250,8 @@ export class EditorPreview extends Component<IEditorPreviewProps, IEditorPreview
 	public render(): ReactNode {
 		return (
 			<div className="relative w-full h-full text-foreground">
+				<EditorPrefabEditBar editor={this.props.editor} />
+
 				<div className="flex flex-col w-full h-full">
 					{this._getToolbar()}
 

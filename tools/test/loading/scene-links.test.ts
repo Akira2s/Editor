@@ -230,6 +230,8 @@ describe("loading/container/geometries", () => {
 		lazy._checkDelayState = () => {
 			lazy.delayLoadState = Constants.DELAYLOADSTATE_LOADING;
 			setTimeout(() => (lazy.delayLoadState = Constants.DELAYLOADSTATE_LOADED), 60);
+
+			return lazy;
 		};
 
 		await loadContainerGeometries(container);

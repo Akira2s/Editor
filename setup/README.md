@@ -12,6 +12,10 @@ node <this repo>/setup/setup-stack.mjs
 
 The script writes into the current directory (`process.cwd()`), so never run it from inside this repo.
 
+On Windows, double-click `setup-stack.bat` instead (or run `setup-stack.bat <project folder>`): it asks for the project
+folder, creates it if missing, refuses folders inside this repo, asks before using a non-empty one, and runs the
+setup in that window so every question is asked.
+
 ## What it asks
 
 Everything is asked up front, then done at the end.

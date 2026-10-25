@@ -8,6 +8,8 @@ import { AdvancedAssetContainer } from "../container/container";
 import { preloadSceneScriptAsset } from "./preload/scene";
 import { preloadCommonScriptAsset } from "./preload/common";
 
+import { getSceneLinkPath } from "./scene-link-path";
+
 /**
  * Defines the cache of all preloaded assets for scripts.
  * Used to populate decorated properties in scripts using @visibleAsAsset.
@@ -60,6 +62,14 @@ export async function _preloadScriptsAssets(rootUrl: string, scene: Scene, scrip
 		.filter((node) => node.metadata?.scripts?.length)
 		.map((node) => node.metadata.scripts)
 		.flat();
+
+	// Scenes linked in the editor (prefab instances) are loaded too, to be instantiated by _instantiateSceneLinks.
+	scene.transformNodes.forEach((node) => {
+		const sceneLinkPath = getSceneLinkPath(node);
+		if (sceneLinkPath && !sceneAssetsCache.get(sceneLinkPath)) {
+			sceneAssetsCache.set(sceneLinkPath, null);
+		}
+	});
 
 	scriptNodes.forEach((script) => {
 		const ctor = scriptsMap[script.key]?.default as ISceneDecoratorData;

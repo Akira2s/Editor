@@ -343,6 +343,31 @@ export async function createBabylonScene(options: ICreateBabylonSceneOptions) {
 		})
 	);
 
+	// Scene links (scene assets dropped in the scene in the editor): packed as transform nodes holding the path of the linked
+	// scene in their metadata. The runtime instantiates the linked scene under them, see `_instantiateSceneLinks` of babylonjs-editor-tools.
+	// The linked scenes are packed with the other scenes (`<name>.babylon`).
+	const linkedScenes = new Set<string>();
+
+	const sceneLinksResult = await Promise.all(
+		options.directories.sceneLinkFiles.map(async (file) => {
+			const data = await fs.readJSON(join(options.sceneFile, "sceneLinks", file));
+			if (data.metadata?.doNotSerialize || typeof data._relativePath !== "string" || !data._relativePath) {
+				return null;
+			}
+
+			if (data.metadata?.parentId) {
+				data.parentId = data.metadata.parentId;
+			}
+
+			data.metadata = { ...data.metadata, sceneLink: data._relativePath };
+			linkedScenes.add(basename(data._relativePath, extname(data._relativePath)));
+
+			return data;
+		})
+	);
+
+	transformNodes.push(...sceneLinksResult.filter((sceneLink) => sceneLink !== null));
+
 	// Sprite managers
 	const spriteManagersResult = await Promise.all(
 		options.directories.spriteManagerFiles.map(async (file) => {
@@ -720,6 +745,7 @@ export async function createBabylonScene(options: ICreateBabylonSceneOptions) {
 	// Manage usedfiles
 	const usedFiles = await collectUsedAssetsForScene(scene, options.publicDir);
 	usedFiles.push(`${options.sceneName}.babylon`);
+	linkedScenes.forEach((linkedScene) => usedFiles.push(`${linkedScene}.babylon`));
 
 	const geometryFiles = usedFiles.filter((file) => extname(file).toLowerCase() === ".babylonbinarymeshdata").map((file) => basename(file));
 

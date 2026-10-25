@@ -69,7 +69,8 @@ export async function loadMeshes(editor: Editor, meshesFiles: string[], scene: S
 
 					const data = index === 0 ? initialData : await readJSON(join(options.projectPath, filename), "utf-8");
 
-					while (meshes.find((m) => m.delayLoadState && m.delayLoadState !== Constants.DELAYLOADSTATE_LOADED)) {
+					// A scene disposed meanwhile (preview reset) never finishes loading its geometries: stop waiting for them.
+					while (!scene.isDisposed && meshes.find((m) => m.delayLoadState && m.delayLoadState !== Constants.DELAYLOADSTATE_LOADED)) {
 						await wait(150);
 					}
 

@@ -47,7 +47,7 @@ import { updateAllLights, updatePointLightShadowMapRenderListPredicate } from ".
 
 import { registerTextureParser } from "./texture";
 import { createNewSceneDefaultNodes } from "./default";
-import { LoadSceneProgressComponent, showLoadSceneProgressDialog } from "./progress";
+import { disposeLoadSceneProgressDialogs, LoadSceneProgressComponent, showLoadSceneProgressDialog } from "./progress";
 
 import { loadGuis } from "./plugins/gui";
 import { loadMeshes } from "./plugins/meshes";
@@ -102,7 +102,38 @@ export type ISceneLoaderPluginOptions = SceneLoaderOptions & {
 	assetsCache: Record<string, IAssetCache>;
 };
 
+let loadQueue: Promise<unknown> = Promise.resolve();
+
+/**
+ * Loads the given scene in the preview of the editor. Loads of scenes follow each other: a load started while another one
+ * runs (a script of an agent, the assets watcher...) waits for it instead of parsing into the same scene at the same time.
+ * Scene links are loaded by their parent scene, they are never queued.
+ */
 export async function loadScene(editor: Editor, projectPath: string, scenePath: string, options?: SceneLoaderOptions): Promise<SceneLoadResult> {
+	if (options?.asLink) {
+		return loadSceneNow(editor, projectPath, scenePath, options);
+	}
+
+	const result = loadQueue.then(async () => {
+		try {
+			return await loadSceneNow(editor, projectPath, scenePath, options);
+		} catch (e) {
+			editor.layout.console.error(`Failed to load scene "${scenePath}": ${e instanceof Error ? e.message : e}`);
+			editor.layout.preview.setRenderScene(true);
+
+			throw e;
+		} finally {
+			// The dialog of a load that failed is still opened.
+			disposeLoadSceneProgressDialogs();
+		}
+	});
+
+	loadQueue = result.catch(() => undefined);
+
+	return result;
+}
+
+async function loadSceneNow(editor: Editor, projectPath: string, scenePath: string, options?: SceneLoaderOptions): Promise<SceneLoadResult> {
 	registerTextureParser(editor);
 
 	const scene = editor.layout.preview.scene;

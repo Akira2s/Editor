@@ -11,6 +11,8 @@ import { getPrefabOverrideProperties } from "../../../tools/scene/prefab-overrid
 import { getRootSceneLink } from "../../../tools/scene/scene-link";
 import { applyOverridesToPrefab, openPrefab } from "../../../tools/scene/prefab";
 
+import { EditorPrefabOverridesMenu } from "./prefab-overrides";
+
 import { SceneLinkNode } from "../../nodes/scene-link";
 
 import { Editor } from "../../main";
@@ -70,6 +72,7 @@ export function EditorPrefabNodeBanner(props: IEditorPrefabNodeBannerProps) {
 				<div className="flex-1 min-w-0 truncate" title={sceneLink.relativePath ?? ""}>
 					Part of prefab <b>{sceneLink.name}</b>
 				</div>
+				<EditorPrefabOverridesMenu editor={props.editor} instance={sceneLink} node={props.node} />
 				<Button variant="ghost" size="sm" onClick={() => openPrefab(props.editor, sceneLink)}>
 					Open
 				</Button>

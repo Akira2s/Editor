@@ -7,7 +7,16 @@ import { UniqueNumber } from "../../tools/tools";
 import { projectConfiguration } from "../../project/configuration";
 import { loadScene, SceneLoadResult } from "../../project/load/scene";
 
-import { applyPrefabNodeOverride, diffPrefabNode, IPrefabNodeOverride, PrefabOverrides, snapshotPrefabNode } from "../../tools/scene/prefab-overrides";
+import {
+	applyPrefabNodeOverride,
+	diffPrefabNode,
+	IPrefabNodeOverride,
+	IPrefabOverrideEntry,
+	listPrefabOverrideEntries,
+	mergePrefabOverrideEntries,
+	PrefabOverrides,
+	snapshotPrefabNode,
+} from "../../tools/scene/prefab-overrides";
 
 import { Editor } from "../main";
 
@@ -153,6 +162,68 @@ export class SceneLinkNode extends TransformNode {
 	public getNodeOverride(node: Node): IPrefabNodeOverride | null {
 		const baseline = this._baselines.get(node.id);
 		return baseline && this._prefabNodes.get(node.id) === node ? diffPrefabNode(baseline, snapshotPrefabNode(node)) : null;
+	}
+
+	/**
+	 * Returns what this instance changes on the given node of the prefab, one entry per property (position, a value of a script...).
+	 */
+	public getOverrideEntries(node: Node): IPrefabOverrideEntry[] {
+		const baseline = this._baselines.get(node.id);
+		return baseline && this._prefabNodes.get(node.id) === node ? listPrefabOverrideEntries(baseline, snapshotPrefabNode(node)) : [];
+	}
+
+	/**
+	 * Returns what this instance changes on all the nodes of the prefab, per node.
+	 */
+	public getAllOverrideEntries(): { node: Node; entries: IPrefabOverrideEntry[] }[] {
+		return Array.from(this._prefabNodes.values())
+			.map((node) => ({ node, entries: this.getOverrideEntries(node) }))
+			.filter((item) => item.entries.length > 0);
+	}
+
+	/**
+	 * Puts the given properties of the given node of the prefab back as the prefab defines them (the other overrides of the node stay).
+	 * @param entryIds defines the ids of the entries, @see getOverrideEntries.
+	 */
+	public revertOverrideEntries(node: Node, entryIds: string[]): void {
+		const baseline = this._baselines.get(node.id);
+		if (!baseline || this._prefabNodes.get(node.id) !== node) {
+			return;
+		}
+
+		const current = snapshotPrefabNode(node);
+		const change = diffPrefabNode(current, mergePrefabOverrideEntries(current, baseline, entryIds));
+		if (change) {
+			applyPrefabNodeOverride(node, change);
+		}
+
+		if (!this.getOverrideEntries(node).length) {
+			delete this._overrides[node.id];
+		}
+	}
+
+	/**
+	 * Returns the override to write in the prefab to apply the given properties of the given node, or null when there is nothing to apply.
+	 * @param entryIds defines the ids of the entries, @see getOverrideEntries.
+	 */
+	public getOverrideEntriesPatch(node: Node, entryIds: string[]): IPrefabNodeOverride | null {
+		const baseline = this._baselines.get(node.id);
+		if (!baseline || this._prefabNodes.get(node.id) !== node) {
+			return null;
+		}
+
+		return diffPrefabNode(baseline, mergePrefabOverrideEntries(baseline, snapshotPrefabNode(node), entryIds));
+	}
+
+	/**
+	 * The Inspector writes the default values of the scripts of a node when it shows them: the same is done on what the prefab defines so
+	 * that the defaults are not taken for overrides.
+	 */
+	public completeBaselineScript(node: Node, scriptKey: string, complete: (script: any) => void): void {
+		const script = this._baselines.get(node.id)?.scripts?.find((s: any) => s.key === scriptKey);
+		if (script) {
+			complete(script);
+		}
 	}
 
 	/**

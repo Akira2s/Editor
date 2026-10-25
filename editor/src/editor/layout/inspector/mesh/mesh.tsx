@@ -47,6 +47,7 @@ import { CustomMetadataInspector } from "../metadata/custom-metadata";
 import { onGizmoNodeChangedObservable } from "../../preview/gizmo/gizmo";
 
 import { EditorTransformNodeInspector } from "../transform";
+import { PrefabOverrideMark } from "../prefab-overrides";
 import { IEditorInspectorImplementationProps } from "../inspector";
 
 import { EditorPBRMaterialInspector } from "../material/pbr";
@@ -136,30 +137,38 @@ export class EditorMeshInspector extends Component<IEditorInspectorImplementatio
 					{(this.props.object.geometry || isGaussianSplattingPartProxyMesh(this.props.object)) && (
 						<>
 							<EditorInspectorSwitchField label="Pickable" object={this.props.object} property="isPickable" />
-							<EditorInspectorSwitchField
-								label="Visible"
-								object={this.props.object}
-								property="isVisible"
-								onChange={() => updateAllLights(this.props.object.getScene())}
-							/>
+							<PrefabOverrideMark editor={this.props.editor} node={this.props.object} entryIds={["visible"]}>
+								<EditorInspectorSwitchField
+									label="Visible"
+									object={this.props.object}
+									property="isVisible"
+									onChange={() => updateAllLights(this.props.object.getScene())}
+								/>
+							</PrefabOverrideMark>
 						</>
 					)}
 				</EditorInspectorSectionField>
 
 				<EditorInspectorSectionField title="Transforms">
-					<EditorInspectorVectorField
-						label={<div className="w-14">Position</div>}
-						object={this.props.object}
-						property="position"
-						onFinishChange={() => this._handleTransformsUpdated()}
-					/>
-					{EditorTransformNodeInspector.GetRotationInspector(this.props.object, () => this._handleTransformsUpdated())}
-					<EditorInspectorVectorField
-						label={<div className="w-14">Scaling</div>}
-						object={this.props.object}
-						property="scaling"
-						onFinishChange={() => this._handleTransformsUpdated()}
-					/>
+					<PrefabOverrideMark editor={this.props.editor} node={this.props.object} entryIds={["position"]}>
+						<EditorInspectorVectorField
+							label={<div className="w-14">Position</div>}
+							object={this.props.object}
+							property="position"
+							onFinishChange={() => this._handleTransformsUpdated()}
+						/>
+					</PrefabOverrideMark>
+					<PrefabOverrideMark editor={this.props.editor} node={this.props.object} entryIds={["rotation"]}>
+						{EditorTransformNodeInspector.GetRotationInspector(this.props.object, () => this._handleTransformsUpdated())}
+					</PrefabOverrideMark>
+					<PrefabOverrideMark editor={this.props.editor} node={this.props.object} entryIds={["scaling"]}>
+						<EditorInspectorVectorField
+							label={<div className="w-14">Scaling</div>}
+							object={this.props.object}
+							property="scaling"
+							onFinishChange={() => this._handleTransformsUpdated()}
+						/>
+					</PrefabOverrideMark>
 
 					<EditorInspectorListField
 						label="Billboard Mode"

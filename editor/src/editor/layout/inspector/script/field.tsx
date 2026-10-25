@@ -45,6 +45,8 @@ import { EditorInspectorVectorField } from "../fields/vector";
 import { EditorInspectorStringField } from "../fields/string";
 import { EditorInspectorTextureField } from "../fields/texture";
 import { EditorInspectorSceneEntityField } from "../fields/entity";
+import { getPrefabInstanceOf, PrefabOverrideMark } from "../prefab-overrides";
+import { getScriptValueEntryId } from "../../../../tools/scene/prefab-overrides";
 
 import { VisibleInInspectorDecoratorObject, computeDefaultValuesForObject, scriptValues } from "./tools";
 
@@ -89,7 +91,7 @@ export function InspectorScriptField(props: IInspectorScriptFieldProps) {
 	useEffect(() => {
 		const output = cachedScripts[srcAbsolutePath]?.output;
 		if (output) {
-			computeDefaultValuesForObject(props.script, output);
+			fillDefaultValues(output);
 			setOutput(output);
 		}
 
@@ -143,6 +145,12 @@ export function InspectorScriptField(props: IInspectorScriptFieldProps) {
 		return exists;
 	}
 
+	// The defaults are also written in the script as the prefab defines it, so that they are not taken for overrides of the instance.
+	function fillDefaultValues(output: VisibleInInspectorDecoratorObject[]) {
+		getPrefabInstanceOf(props.object)?.completeBaselineScript(props.object, props.script.key, (script) => computeDefaultValuesForObject(script, output));
+		computeDefaultValuesForObject(props.script, output);
+	}
+
 	async function handleParseVisibleProperties() {
 		if (!projectConfiguration.path) {
 			return;
@@ -176,7 +184,7 @@ export function InspectorScriptField(props: IInspectorScriptFieldProps) {
 			};
 
 			if (extractOutput) {
-				computeDefaultValuesForObject(props.script, extractOutput);
+				fillDefaultValues(extractOutput);
 			}
 		}
 
@@ -184,6 +192,16 @@ export function InspectorScriptField(props: IInspectorScriptFieldProps) {
 	}
 
 	function getInspectorForValue(value: VisibleInInspectorDecoratorObject) {
+		const field = getRawInspectorForValue(value);
+
+		return (
+			<PrefabOverrideMark key={value.propertyKey} editor={props.editor} node={props.object} entryIds={[getScriptValueEntryId(props.script.key, value.propertyKey)]}>
+				{field}
+			</PrefabOverrideMark>
+		);
+	}
+
+	function getRawInspectorForValue(value: VisibleInInspectorDecoratorObject) {
 		switch (value.configuration.type) {
 			case "boolean":
 				return (
@@ -528,7 +546,9 @@ export function InspectorScriptField(props: IInspectorScriptFieldProps) {
 						</Button>
 					</div>
 
-					<EditorInspectorSwitchField object={props.script} property="enabled" label="Enabled" onChange={(v) => setEnabled(v)} />
+					<PrefabOverrideMark editor={props.editor} node={props.object} entryIds={[`script:${props.script.key}:@enabled`]}>
+						<EditorInspectorSwitchField object={props.script} property="enabled" label="Enabled" onChange={(v) => setEnabled(v)} />
+					</PrefabOverrideMark>
 				</div>
 
 				<div className="flex justify-center items-center w-10 h-10 hover:bg-secondary rounded-lg mt-1 transition-all duration-300" onClick={() => props.onRemove()}>

@@ -11,6 +11,7 @@ import { onNodeModifiedObservable } from "../../../tools/observables";
 import { applyOverridesToPrefab, openPrefab, unpackSceneLink } from "../../../tools/scene/prefab";
 
 import { EditorInspectorStringField } from "./fields/string";
+import { EditorPrefabOverridesMenu, PrefabOverrideMark } from "./prefab-overrides";
 import { EditorInspectorVectorField } from "./fields/vector";
 import { EditorInspectorSectionField } from "./fields/section";
 
@@ -71,6 +72,7 @@ export class EditorTransformNodeInspector extends Component<IEditorInspectorImpl
 							<div className="flex-1 min-w-0 text-xs opacity-70">
 								{overrideCount ? `${overrideCount} node${overrideCount > 1 ? "s" : ""} overridden in this instance` : "No overrides: this instance is the prefab"}
 							</div>
+							<EditorPrefabOverridesMenu editor={this.props.editor} instance={sceneLink} />
 							<Button
 								variant="ghost"
 								size="sm"
@@ -99,9 +101,15 @@ export class EditorTransformNodeInspector extends Component<IEditorInspectorImpl
 				)}
 
 				<EditorInspectorSectionField title="Transforms">
-					<EditorInspectorVectorField label={<div className="w-14">Position</div>} object={this.props.object} property="position" />
-					{EditorTransformNodeInspector.GetRotationInspector(this.props.object)}
-					<EditorInspectorVectorField label={<div className="w-14">Scaling</div>} object={this.props.object} property="scaling" />
+					<PrefabOverrideMark editor={this.props.editor} node={this.props.object} entryIds={["position"]}>
+						<EditorInspectorVectorField label={<div className="w-14">Position</div>} object={this.props.object} property="position" />
+					</PrefabOverrideMark>
+					<PrefabOverrideMark editor={this.props.editor} node={this.props.object} entryIds={["rotation"]}>
+						{EditorTransformNodeInspector.GetRotationInspector(this.props.object)}
+					</PrefabOverrideMark>
+					<PrefabOverrideMark editor={this.props.editor} node={this.props.object} entryIds={["scaling"]}>
+						<EditorInspectorVectorField label={<div className="w-14">Scaling</div>} object={this.props.object} property="scaling" />
+					</PrefabOverrideMark>
 
 					<EditorInspectorSwitchField
 						object={this.props.object.metadata}

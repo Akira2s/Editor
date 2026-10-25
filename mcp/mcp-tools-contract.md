@@ -165,6 +165,16 @@ For `create_animation`, infer the Babylon `ANIMATIONTYPE_*` from the resolved cu
 | `create_animation` | Author a keyframe `AnimationGroup` targeting a node property (e.g. a door opening = animate `rotation.y`). Builds a Babylon `Animation` from `keys`, wraps it in a named group, adds it to the scene. | `{ nodeId?, nodeName?, name, targetProperty: string, framesPerSecond?: number (default 60), loopMode?: "cycle"|"constant"|"relative", keys: [{ frame: number, value: number | [number,number,number] }] }` | `{ name, from, to, targetedAnimationCount }` |
 | `delete_animation_group` | Remove an animation group from the scene (disposes it). | `{ name }` | `{ deleted: true }` |
 
+### Prefabs (reusable scene assets, like Unity prefabs)
+
+A prefab is a scene asset (`assets/prefabs/<Name>.scene`) holding a root node, its meshes/lights and the scripts attached to them. Instances are scene links (`SceneLinkNode`): the editor shows the prefab at the link's transform, the CLI packs every link as a transform node whose `metadata.sceneLink` is the path of the prefab, and the runtime (`_instantiateSceneLinks` of `babylonjs-editor-tools`) instantiates the prefab under it and runs its scripts. Scripts attached to the link itself are per-instance components.
+
+| endpoint | description | input | output |
+|---|---|---|---|
+| `list_prefabs` | List the scene assets (`.scene`) of the project. | `{}` | `{ prefabs: [{ name, path }] }` |
+| `create_prefab` | Save nodes (with their descendants) as a prefab and replace them in the scene with a link to it, like "Create Prefab..." in the graph. Several nodes are grouped under a new root. The prefab is saved at the origin; the link takes the place of the nodes. | `{ name: string, nodeIds?: string[], nodeNames?: string[], nodeId?, nodeName?, directory?: string (default `assets/prefabs`) }` | `{ prefab, link: NodeSummary, note }` |
+| `instantiate_prefab` | Place an instance (scene link) of a prefab in the scene. | `{ prefab: string (path or name), name?, position?, rotation?, scaling?, parentId?, parentName? }` | `{ prefab, link: NodeSummary }` |
+
 ### Marketplace (must be visible in editor — spec §marketplace, §important notes)
 
 | endpoint | description | input | output |

@@ -43,6 +43,8 @@ export const assistantAllowedEditorTools = [
 	// Meshes, lights & cameras
 	"create_primitive_mesh",
 	"create_instance",
+	"list_prefabs",
+	"instantiate_prefab",
 	"clone_mesh",
 	"set_mesh_material",
 	"set_mesh_visibility",

@@ -2,6 +2,8 @@ import { platform } from "os";
 
 import { Component, PropsWithChildren, ReactNode } from "react";
 
+import { toast } from "sonner";
+
 import { IoMdCube } from "react-icons/io";
 import { AiOutlinePlus, AiOutlineClose } from "react-icons/ai";
 
@@ -20,7 +22,7 @@ import {
 	ContextMenuCheckboxItem,
 } from "../../../ui/shadcn/ui/context-menu";
 
-import { showConfirm } from "../../../ui/dialog";
+import { showConfirm, showPrompt } from "../../../ui/dialog";
 import { Separator } from "../../../ui/shadcn/ui/separator";
 
 import { getNodeCommands } from "../../dialogs/command-palette/node";
@@ -30,6 +32,8 @@ import { getCameraCommands } from "../../dialogs/command-palette/camera";
 import { getSpriteCommands } from "../../dialogs/command-palette/sprite";
 
 import { registerUndoRedo } from "../../../tools/undoredo";
+
+import { createPrefabFromNodes, getPrefabRoots } from "../../../tools/scene/prefab";
 import { waitNextAnimationFrame } from "../../../tools/tools";
 import { isClusteredLight } from "../../../tools/light/cluster";
 import { createMeshInstance } from "../../../tools/mesh/instance";
@@ -96,6 +100,8 @@ export class EditorGraphContextMenu extends Component<IEditorGraphContextMenuPro
 							{!isScene(this.props.object) && !isClusteredLightContainer(this.props.object) && (
 								<>
 									<ContextMenuItem onClick={() => this._cloneNode(this.props.object)}>Clone</ContextMenuItem>
+
+									{isNode(this.props.object) && <ContextMenuItem onClick={() => this._createPrefab(this.props.object)}>Create Prefab...</ContextMenuItem>}
 
 									{!isSprite(this.props.object) && (
 										<>
@@ -404,6 +410,37 @@ export class EditorGraphContextMenu extends Component<IEditorGraphContextMenuPro
 				instance = createMeshInstance(this.props.editor, mesh);
 			},
 		});
+	}
+
+	/**
+	 * Saves the selected nodes (the one under the cursor when it is not selected) as a prefab, a scene asset replacing them in the scene
+	 * with a link to it.
+	 */
+	private async _createPrefab(node: Node): Promise<void> {
+		const selected = this.props.editor.layout.graph
+			.getSelectedNodes()
+			.map((n) => n.nodeData)
+			.filter((n): n is Node => isNode(n));
+
+		const nodes = selected.includes(node) ? selected : [node];
+		if (!getPrefabRoots(nodes).length) {
+			return void toast.error("The selection can't be saved as a prefab.");
+		}
+
+		const name = await showPrompt("Create Prefab", "Enter the name of the prefab", nodes.length === 1 ? nodes[0].name : "New Prefab");
+		if (!name) {
+			return;
+		}
+
+		try {
+			const result = await createPrefabFromNodes(this.props.editor, nodes, name);
+			this.props.editor.layout.console.log(`Prefab "${result.relativePath}" created. The selection was replaced with a link to it: save the scene to keep it.`);
+		} catch (e) {
+			const message = e instanceof Error ? e.message : String(e);
+
+			this.props.editor.layout.console.error(`Failed to create the prefab: ${message}`);
+			toast.error(`Failed to create the prefab: ${message}`);
+		}
 	}
 
 	private async _cloneNode(node: any): Promise<void> {

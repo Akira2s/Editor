@@ -61,3 +61,4 @@ export * from "./loading/database/preload";
 
 export * from "./input/index";
 export * from "./physics/kcc/index";
+export * from "./animation/state-machine/index";

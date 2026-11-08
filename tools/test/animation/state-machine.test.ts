@@ -875,5 +875,35 @@ describe("animation/state-machine", () => {
 			expect(startSpyC).toHaveBeenCalled();
 			expect(animC.weight).toBe(1.0);
 		});
+
+		test("TC-ASM-06: should ignore NaN parameter values, avoid duplicate t=0 loop events, and dispose on scene disposal", () => {
+			const sm = new AnimationStateMachine(scene, node);
+			sm.setFloat("speed", 5.0);
+			sm.setFloat("speed", Number.NaN);
+			expect(sm.getFloat("speed")).toBe(5.0);
+
+			let zeroEventCount = 0;
+			sm.onAnimationEvent.add((evt) => {
+				if (evt.name === "StartEvent") {
+					zeroEventCount++;
+				}
+			});
+
+			sm.addState({
+				name: "LoopZero",
+				loop: true,
+				transitions: [],
+				events: [{ time: 0.0, name: "StartEvent" }],
+			});
+			sm.setInitialState("LoopZero");
+
+			// Exact 1.0s loop boundary -> t=0 event should fire once for loop 1, not twice
+			sm.update(1.0);
+			expect(zeroEventCount).toBe(1);
+
+			// Disposing scene automatically disposes state machine
+			scene.dispose();
+			expect(sm.isDisposed).toBe(true);
+		});
 	});
 });

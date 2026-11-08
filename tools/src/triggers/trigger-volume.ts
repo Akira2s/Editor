@@ -59,7 +59,7 @@ export class TriggerVolume {
 				this._enabled = options.enabled;
 			}
 			if (options.checkInterval !== undefined) {
-				this.checkInterval = options.checkInterval;
+				this.checkInterval = Math.max(1, Math.floor(Number.isFinite(options.checkInterval) ? options.checkInterval : 1));
 			}
 		}
 
@@ -69,7 +69,8 @@ export class TriggerVolume {
 					return;
 				}
 				this._frameCounter++;
-				if (this._frameCounter % this.checkInterval === 0) {
+				const interval = Math.max(1, Math.floor(Number.isFinite(this.checkInterval) ? this.checkInterval : 1));
+				if (this._frameCounter % interval === 0) {
 					this.update();
 				}
 			});
@@ -207,7 +208,7 @@ export class TriggerVolume {
 		return baseRadius;
 	}
 
-	public isOverlapping(target: TransformNode | AbstractMesh, cachedInvMatrix?: Matrix): boolean {
+	public isOverlapping(target: TransformNode | AbstractMesh, cachedInvMatrix?: Matrix | null): boolean {
 		if (!target || !this._enabled || this._isDisposed) {
 			return false;
 		}
@@ -231,12 +232,19 @@ export class TriggerVolume {
 		}
 
 		if (this.node) {
+			if (cachedInvMatrix === null) {
+				return false;
+			}
 			let invMatrix: Matrix;
 			if (cachedInvMatrix) {
 				invMatrix = cachedInvMatrix;
 			} else {
 				this.node.computeWorldMatrix(true);
-				invMatrix = this.node.getWorldMatrix().clone().invert();
+				const worldMatrix = this.node.getWorldMatrix();
+				if (Math.abs(worldMatrix.determinant()) <= 1e-8) {
+					return false;
+				}
+				invMatrix = worldMatrix.clone().invert();
 			}
 			const localPos = Vector3.TransformCoordinates(targetPos, invMatrix);
 			const halfX = Math.abs(this.size.x) / 2;
@@ -269,10 +277,15 @@ export class TriggerVolume {
 			candidateList = [];
 		}
 
-		let cachedInvMatrix: Matrix | undefined;
+		let cachedInvMatrix: Matrix | null | undefined;
 		if (this.shape === "box" && this.node) {
 			this.node.computeWorldMatrix(true);
-			cachedInvMatrix = this.node.getWorldMatrix().clone().invert();
+			const worldMatrix = this.node.getWorldMatrix();
+			if (Math.abs(worldMatrix.determinant()) <= 1e-8) {
+				cachedInvMatrix = null;
+			} else {
+				cachedInvMatrix = worldMatrix.clone().invert();
+			}
 		}
 
 		const currentOverlaps = new Set<TransformNode | AbstractMesh>();
@@ -344,11 +357,15 @@ export class TriggerVolume {
 	}
 
 	public static Parse(json: any, scene: Scene): TriggerVolume {
+		if (!json || typeof json !== "object") {
+			return new TriggerVolume("TriggerVolume", scene);
+		}
+
 		let node: TransformNode | null = null;
-		if (json.nodeId && typeof scene.getNodeById === "function") {
+		if (json.nodeId && typeof scene?.getNodeById === "function") {
 			node = (scene.getNodeById(json.nodeId) as TransformNode) ?? null;
 		}
-		if (!node && json.nodeName && typeof scene.getNodeByName === "function") {
+		if (!node && json.nodeName && typeof scene?.getNodeByName === "function") {
 			node = (scene.getNodeByName(json.nodeName) as TransformNode) ?? null;
 		}
 
@@ -361,6 +378,8 @@ export class TriggerVolume {
 			size = new Vector3(2, 2, 2);
 		}
 
+		const rawInterval = typeof json.checkInterval === "number" && Number.isFinite(json.checkInterval) ? json.checkInterval : 1;
+
 		const options: ITriggerVolumeOptions = {
 			shape: json.shape ?? "box",
 			size,
@@ -368,7 +387,7 @@ export class TriggerVolume {
 			detectionMode: json.detectionMode ?? "all",
 			tag: json.tag ?? undefined,
 			enabled: json.enabled !== undefined ? json.enabled : true,
-			checkInterval: typeof json.checkInterval === "number" ? json.checkInterval : 1,
+			checkInterval: Math.max(1, Math.floor(rawInterval)),
 		};
 
 		const trigger = new TriggerVolume(json.name ?? "TriggerVolume", scene, node, options);

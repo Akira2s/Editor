@@ -2,6 +2,8 @@ import { Vector3 } from "@babylonjs/core/Maths/math.vector";
 import { TransformNode } from "@babylonjs/core/Meshes/transformNode";
 import { AbstractMesh } from "@babylonjs/core/Meshes/abstractMesh";
 
+import type { TriggerVolume } from "./trigger-volume";
+
 export type TriggerShape = "box" | "sphere";
 
 export type TriggerDetectionMode = "all" | "taggedOnly";
@@ -17,7 +19,7 @@ export interface ITriggerVolumeOptions {
 }
 
 export interface ITriggerEvent {
-	trigger: any;
+	trigger: TriggerVolume;
 	target: TransformNode | AbstractMesh;
 	state: "enter" | "stay" | "exit";
 	timestamp: number;

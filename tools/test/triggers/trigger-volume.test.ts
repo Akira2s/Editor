@@ -594,5 +594,25 @@ describe("triggers/trigger-volume", () => {
 			scene.dispose();
 			expect(trigger.isDisposed).toBe(true);
 		});
+
+		test("should safely handle singular zero-scaled box triggers, invalid checkInterval, and null Parse input", () => {
+			triggerNode.scaling.set(0, 1, 1); // determinant = 0 (singular matrix)
+			const trigger = new TriggerVolume("ZeroScaleBox", scene, triggerNode, {
+				shape: "box",
+				checkInterval: 0,
+			});
+
+			expect(trigger.checkInterval).toBe(1);
+
+			const player = new TransformNode("Player", scene);
+			player.position.set(0, 0, 0);
+
+			expect(trigger.isOverlapping(player)).toBe(false);
+			expect(() => trigger.update([player])).not.toThrow();
+
+			const parsedFromNull = TriggerVolume.Parse(null, scene);
+			expect(parsedFromNull).toBeInstanceOf(TriggerVolume);
+			expect(parsedFromNull.checkInterval).toBe(1);
+		});
 	});
 });

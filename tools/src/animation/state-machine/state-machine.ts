@@ -1,6 +1,6 @@
 import { Scene } from "@babylonjs/core/scene";
 import { TransformNode } from "@babylonjs/core/Meshes/transformNode";
-import { Observable } from "@babylonjs/core/Misc/observable";
+import { Observable, Observer } from "@babylonjs/core/Misc/observable";
 import { AnimationGroup } from "@babylonjs/core/Animations/animationGroup";
 
 import { IAnimationEvent, IAnimationParameter, IAnimationState, IAnimationStateMachineData, IAnimationTransition, IBlendTree1D, ITransitionCondition } from "./types";
@@ -18,6 +18,7 @@ export class AnimationStateMachine {
 
 	private _scene: Scene | null = null;
 	private _node: TransformNode | null = null;
+	private _sceneDisposeObserver: Observer<Scene> | null = null;
 	private _parameters: Map<string, IAnimationParameter> = new Map<string, IAnimationParameter>();
 	private _states: Map<string, IAnimationState> = new Map<string, IAnimationState>();
 	private _initialState: string | null = null;
@@ -31,6 +32,12 @@ export class AnimationStateMachine {
 	public constructor(scene?: Scene | null, node?: TransformNode | null) {
 		this._scene = scene ?? null;
 		this._node = node ?? null;
+
+		if (this._scene?.onDisposeObservable) {
+			this._sceneDisposeObserver = this._scene.onDisposeObservable.addOnce(() => {
+				this.dispose();
+			});
+		}
 	}
 
 	public get scene(): Scene | null {
@@ -73,6 +80,9 @@ export class AnimationStateMachine {
 	// ---------------------------------------------------------------------------
 
 	public setFloat(name: string, value: number): void {
+		if (!Number.isFinite(value)) {
+			return;
+		}
 		const param = this._parameters.get(name);
 		if (param) {
 			param.type = "float";
@@ -83,6 +93,9 @@ export class AnimationStateMachine {
 	}
 
 	public setInt(name: string, value: number): void {
+		if (!Number.isFinite(value)) {
+			return;
+		}
 		const intVal = Math.trunc(value);
 		const param = this._parameters.get(name);
 		if (param) {
@@ -127,7 +140,7 @@ export class AnimationStateMachine {
 			return 0;
 		}
 		if (typeof param.value === "number") {
-			return param.value;
+			return Number.isFinite(param.value) ? param.value : 0;
 		}
 		return param.value ? 1 : 0;
 	}
@@ -138,7 +151,7 @@ export class AnimationStateMachine {
 			return 0;
 		}
 		if (typeof param.value === "number") {
-			return Math.trunc(param.value);
+			return Number.isFinite(param.value) ? Math.trunc(param.value) : 0;
 		}
 		return param.value ? 1 : 0;
 	}
@@ -171,7 +184,9 @@ export class AnimationStateMachine {
 		if (state.events) {
 			for (const event of state.events) {
 				if (event.time < 0 || event.time > 1.0) {
-					console.warn(`AnimationStateMachine: Event "${event.name}" in state "${state.name}" has normalized time ${event.time} out of bounds [0, 1]. It will never fire.`);
+					console.warn(
+						`AnimationStateMachine: Event "${event.name}" in state "${state.name}" has normalized time ${event.time} out of bounds [0, 1]. It will never fire.`
+					);
 				}
 			}
 		}
@@ -252,7 +267,8 @@ export class AnimationStateMachine {
 		}
 
 		const motions = [...blendTree.motions].sort((a, b) => a.threshold - b.threshold);
-		const paramValue = this.getFloat(blendTree.parameter);
+		const rawParam = this.getFloat(blendTree.parameter);
+		const paramValue = Number.isFinite(rawParam) ? rawParam : 0;
 
 		for (const motion of motions) {
 			weights.set(motion.animationGroupName, 0);
@@ -284,8 +300,8 @@ export class AnimationStateMachine {
 					weights.set(m1.animationGroupName, 1.0);
 				} else {
 					const alpha = (paramValue - m1.threshold) / range;
-					weights.set(m1.animationGroupName, 1.0 - alpha);
-					weights.set(m2.animationGroupName, alpha);
+					weights.set(m1.animationGroupName, (weights.get(m1.animationGroupName) ?? 0) + (1.0 - alpha));
+					weights.set(m2.animationGroupName, (weights.get(m2.animationGroupName) ?? 0) + alpha);
 				}
 				break;
 			}
@@ -357,9 +373,11 @@ export class AnimationStateMachine {
 			if (rawNorm >= 1.0) {
 				this._checkEvents(prevNorm, 1.0);
 				this._firedEvents.clear();
-				this._stateTime = newTime % duration;
+				this._stateTime = duration > 0 ? newTime % duration : 0;
 				const wrappedNorm = duration > 0 ? this._stateTime / duration : 0;
-				this._checkEvents(0, wrappedNorm);
+				if (wrappedNorm > 0) {
+					this._checkEvents(0, wrappedNorm);
+				}
 			} else {
 				this._stateTime = newTime;
 				this._checkEvents(prevNorm, rawNorm);
@@ -783,6 +801,10 @@ export class AnimationStateMachine {
 	public dispose(): void {
 		if (this._isDisposed) {
 			return;
+		}
+		if (this._sceneDisposeObserver && this._scene?.onDisposeObservable) {
+			this._scene.onDisposeObservable.remove(this._sceneDisposeObserver);
+			this._sceneDisposeObserver = null;
 		}
 		this._stopAllAnimations();
 		this.onStateChanged.clear();

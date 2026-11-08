@@ -4,12 +4,7 @@ import { Observer } from "@babylonjs/core/Misc/observable";
 import { KeyboardEventTypes, KeyboardInfo } from "@babylonjs/core/Events/keyboardEvents";
 import { PointerEventTypes, PointerInfo } from "@babylonjs/core/Events/pointerEvents";
 
-import {
-	GamepadAxisIndex,
-	GamepadButtonIndex,
-	IInputActionMap,
-	IInputBinding,
-} from "./types";
+import { GamepadAxisIndex, GamepadButtonIndex, IInputActionMap, IInputBinding } from "./types";
 
 /**
  * Unified Input Action Manager supporting keyboard, mouse, gamepad, and custom action maps.
@@ -41,6 +36,7 @@ export class InputManager {
 	private _currentGamepadButtons: boolean[] = new Array(17).fill(false);
 	private _previousGamepadButtons: boolean[] = new Array(17).fill(false);
 	private _currentGamepadAxes: number[] = new Array(4).fill(0);
+	private _previousGamepadAxes: number[] = new Array(4).fill(0);
 
 	// Babylon observers
 	private _keyboardObserver: Observer<KeyboardInfo> | null = null;
@@ -306,7 +302,15 @@ export class InputManager {
 							break;
 
 						case "mouse":
-							if (binding.axis === "x") {
+							if (binding.mouseButton !== undefined) {
+								if (this._heldMouseButtons.has(binding.mouseButton)) {
+									if (binding.axis === "y") {
+										result.y += 1.0 * scale;
+									} else {
+										result.x += 1.0 * scale;
+									}
+								}
+							} else if (binding.axis === "x") {
 								result.x += this._mouseDelta.x * scale;
 							} else if (binding.axis === "y") {
 								result.y += this._mouseDelta.y * scale;
@@ -491,6 +495,7 @@ export class InputManager {
 		this._currentGamepadButtons.fill(false);
 		this._previousGamepadButtons.fill(false);
 		this._currentGamepadAxes.fill(0);
+		this._previousGamepadAxes.fill(0);
 
 		this._scene = null;
 	}
@@ -653,11 +658,33 @@ export class InputManager {
 		}
 
 		const aliases = new Set<string>(candidates);
+
+		// First remove specific side aliases so we can check if the opposite modifier remains held
+		const genericModifiers = new Set<string>(["Shift", "shift", "Control", "control", "Alt", "alt"]);
 		for (const alias of aliases) {
-			if (this._heldKeys.has(alias)) {
-				this._keysUpQueue.add(alias);
+			if (!genericModifiers.has(alias)) {
+				if (this._heldKeys.has(alias)) {
+					this._keysUpQueue.add(alias);
+				}
+				this._heldKeys.delete(alias);
 			}
-			this._heldKeys.delete(alias);
+		}
+
+		// Only release generic modifier aliases if neither Left nor Right side remains held
+		for (const alias of aliases) {
+			if (genericModifiers.has(alias)) {
+				const lower = alias.toLowerCase();
+				const stillHeld =
+					(lower === "shift" && (this._heldKeys.has("ShiftLeft") || this._heldKeys.has("ShiftRight"))) ||
+					(lower === "control" && (this._heldKeys.has("ControlLeft") || this._heldKeys.has("ControlRight"))) ||
+					(lower === "alt" && (this._heldKeys.has("AltLeft") || this._heldKeys.has("AltRight")));
+				if (!stillHeld) {
+					if (this._heldKeys.has(alias)) {
+						this._keysUpQueue.add(alias);
+					}
+					this._heldKeys.delete(alias);
+				}
+			}
 		}
 	}
 
@@ -709,6 +736,9 @@ export class InputManager {
 	private _pollGamepad(): void {
 		for (let i = 0; i < 17; i++) {
 			this._previousGamepadButtons[i] = this._currentGamepadButtons[i] || false;
+		}
+		for (let i = 0; i < 4; i++) {
+			this._previousGamepadAxes[i] = this._currentGamepadAxes[i] ?? 0;
 		}
 
 		if (typeof navigator === "undefined" || !navigator.getGamepads) {
@@ -762,6 +792,11 @@ export class InputManager {
 		return this._releasedKeys.has(key) || this._releasedKeys.has(key.toLowerCase());
 	}
 
+	private _isGamepadAxisActive(axisValue: number, binding: IInputBinding): boolean {
+		const threshold = binding.deadzone ?? 0.5;
+		return binding.scale !== undefined && binding.scale < 0 ? axisValue < -threshold : axisValue > threshold;
+	}
+
 	private _isBindingDown(binding: IInputBinding): boolean {
 		switch (binding.device) {
 			case "keyboard":
@@ -775,9 +810,8 @@ export class InputManager {
 					return this._currentGamepadButtons[binding.gamepadButton] === true;
 				}
 				if (binding.gamepadAxis !== undefined) {
-					const threshold = binding.deadzone ?? 0.5;
 					const axisVal = this._currentGamepadAxes[binding.gamepadAxis] ?? 0;
-					return (binding.scale !== undefined && binding.scale < 0) ? axisVal < -threshold : axisVal > threshold;
+					return this._isGamepadAxisActive(axisVal, binding);
 				}
 				return false;
 
@@ -798,6 +832,11 @@ export class InputManager {
 				if (binding.gamepadButton !== undefined) {
 					return this._currentGamepadButtons[binding.gamepadButton] === true && !this._previousGamepadButtons[binding.gamepadButton];
 				}
+				if (binding.gamepadAxis !== undefined) {
+					const currVal = this._currentGamepadAxes[binding.gamepadAxis] ?? 0;
+					const prevVal = this._previousGamepadAxes[binding.gamepadAxis] ?? 0;
+					return this._isGamepadAxisActive(currVal, binding) && !this._isGamepadAxisActive(prevVal, binding);
+				}
 				return false;
 
 			default:
@@ -817,6 +856,11 @@ export class InputManager {
 				if (binding.gamepadButton !== undefined) {
 					return !this._currentGamepadButtons[binding.gamepadButton] && this._previousGamepadButtons[binding.gamepadButton] === true;
 				}
+				if (binding.gamepadAxis !== undefined) {
+					const currVal = this._currentGamepadAxes[binding.gamepadAxis] ?? 0;
+					const prevVal = this._previousGamepadAxes[binding.gamepadAxis] ?? 0;
+					return !this._isGamepadAxisActive(currVal, binding) && this._isGamepadAxisActive(prevVal, binding);
+				}
 				return false;
 
 			default:
@@ -825,11 +869,18 @@ export class InputManager {
 	}
 
 	private _applyDeadzone(value: number, deadzone: number): number {
-		const abs = Math.abs(value);
-		if (abs <= deadzone) {
+		if (!Number.isFinite(value)) {
+			return 0;
+		}
+		const safeDeadzone = Number.isFinite(deadzone) ? Math.max(0, deadzone) : 0.15;
+		if (safeDeadzone >= 1.0) {
+			return 0;
+		}
+		const abs = Math.min(1.0, Math.abs(value));
+		if (abs <= safeDeadzone) {
 			return 0;
 		}
 		const sign = Math.sign(value);
-		return sign * ((abs - deadzone) / (1.0 - deadzone));
+		return sign * ((abs - safeDeadzone) / (1.0 - safeDeadzone));
 	}
 }

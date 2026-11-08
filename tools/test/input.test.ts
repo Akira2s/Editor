@@ -4,10 +4,7 @@ import { Scene } from "@babylonjs/core/scene";
 import { KeyboardEventTypes, KeyboardInfo } from "@babylonjs/core/Events/keyboardEvents";
 import { PointerEventTypes, PointerInfo } from "@babylonjs/core/Events/pointerEvents";
 
-import {
-	InputManager,
-	IInputActionMap,
-} from "../src/input";
+import { InputManager, IInputActionMap } from "../src/input";
 
 describe("InputManager", () => {
 	let mockScene: any;
@@ -296,6 +293,135 @@ describe("InputManager", () => {
 
 			expect(disposeSpy).toHaveBeenCalledTimes(1);
 			expect(keyboardObservable.hasObservers()).toBe(false);
+		});
+	});
+
+	describe("Adversarial Edge Cases", () => {
+		test("should guard deadzone >= 1.0 and NaN axis values against division by zero", () => {
+			const manager = new InputManager(mockScene);
+			manager.registerActionMap({
+				name: "EdgeDeadzone",
+				enabled: true,
+				actions: [
+					{
+						name: "Stick",
+						type: "axis1d",
+						bindings: [{ device: "gamepad", gamepadAxis: 0, deadzone: 1.0 }],
+					},
+				],
+			});
+
+			const mockGamepad: any = {
+				connected: true,
+				buttons: new Array(17).fill({ pressed: false, value: 0 }),
+				axes: [1.5, Number.NaN, 0, 0],
+			};
+
+			vi.stubGlobal("navigator", {
+				getGamepads: () => [mockGamepad],
+			});
+
+			manager.update();
+			expect(manager.getAxis1D("Stick")).toBe(0);
+			expect(Number.isNaN(manager.getAxis2D("Move").y)).toBe(false);
+
+			manager.dispose();
+		});
+
+		test("should detect isButtonPressed and isButtonReleased for gamepadAxis bindings", () => {
+			const manager = new InputManager(mockScene);
+			manager.registerActionMap({
+				name: "TriggerButton",
+				enabled: true,
+				actions: [
+					{
+						name: "Fire",
+						type: "button",
+						bindings: [{ device: "gamepad", gamepadAxis: 2, deadzone: 0.5 }],
+					},
+				],
+			});
+
+			const mockGamepad: any = {
+				connected: true,
+				buttons: new Array(17).fill({ pressed: false, value: 0 }),
+				axes: [0, 0, 0, 0],
+			};
+
+			vi.stubGlobal("navigator", {
+				getGamepads: () => [mockGamepad],
+			});
+
+			// Frame 1: axis idle
+			manager.update();
+			expect(manager.isButtonDown("Fire")).toBe(false);
+			expect(manager.isButtonPressed("Fire")).toBe(false);
+
+			// Frame 2: axis crosses threshold -> pressed & down
+			mockGamepad.axes[2] = 0.8;
+			manager.update();
+			expect(manager.isButtonDown("Fire")).toBe(true);
+			expect(manager.isButtonPressed("Fire")).toBe(true);
+			expect(manager.isButtonReleased("Fire")).toBe(false);
+
+			// Frame 3: axis held -> down, not pressed
+			manager.update();
+			expect(manager.isButtonDown("Fire")).toBe(true);
+			expect(manager.isButtonPressed("Fire")).toBe(false);
+
+			// Frame 4: axis released -> released
+			mockGamepad.axes[2] = 0.1;
+			manager.update();
+			expect(manager.isButtonDown("Fire")).toBe(false);
+			expect(manager.isButtonReleased("Fire")).toBe(true);
+
+			manager.dispose();
+		});
+
+		test("should keep generic Shift alias held when releasing ShiftRight while ShiftLeft is still held", () => {
+			const manager = new InputManager(mockScene);
+			manager.registerActionMap({
+				name: "ModifierMap",
+				enabled: true,
+				actions: [
+					{
+						name: "AnyShift",
+						type: "button",
+						bindings: [{ device: "keyboard", key: "Shift" }],
+					},
+				],
+			});
+
+			// Hold ShiftLeft and ShiftRight
+			keyboardObservable.notifyObservers({
+				type: KeyboardEventTypes.KEYDOWN,
+				event: { code: "ShiftLeft", key: "Shift" } as KeyboardEvent,
+			} as KeyboardInfo);
+			keyboardObservable.notifyObservers({
+				type: KeyboardEventTypes.KEYDOWN,
+				event: { code: "ShiftRight", key: "Shift" } as KeyboardEvent,
+			} as KeyboardInfo);
+			manager.update();
+			expect(manager.isButtonDown("AnyShift")).toBe(true);
+
+			// Release ShiftRight while ShiftLeft remains held
+			keyboardObservable.notifyObservers({
+				type: KeyboardEventTypes.KEYUP,
+				event: { code: "ShiftRight", key: "Shift" } as KeyboardEvent,
+			} as KeyboardInfo);
+			manager.update();
+			expect(manager.isButtonDown("AnyShift")).toBe(true);
+
+			// Release ShiftLeft -> now generic Shift should be released
+			keyboardObservable.notifyObservers({
+				type: KeyboardEventTypes.KEYUP,
+				event: { code: "ShiftLeft", key: "Shift" } as KeyboardEvent,
+			} as KeyboardInfo);
+			manager.update();
+			expect(manager.isButtonDown("AnyShift")).toBe(false);
+			expect(manager.isButtonReleased("AnyShift")).toBe(true);
+
+			manager.dispose();
 		});
 	});
 });

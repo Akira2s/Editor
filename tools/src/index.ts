@@ -58,3 +58,6 @@ export * from "./cinematic/cinematic";
 export * from "./loading/database/indexdb";
 export * from "./loading/database/database";
 export * from "./loading/database/preload";
+
+export * from "./input/index";
+

@@ -556,5 +556,26 @@ describe("physics/kcc/CharacterController", () => {
 				expect(passedPredicate(mesh2)).toBe(false);
 			}
 		});
+
+		test("should reject negative, zero, or NaN jump force and clamp negative geometry setters", () => {
+			const controller = new CharacterController(node, scene);
+			controller.state.isGrounded = true;
+			controller.state.onSteepSlope = false;
+
+			expect(controller.jump(0)).toBe(false);
+			expect(controller.jump(-5)).toBe(false);
+			expect(controller.jump(Number.NaN)).toBe(false);
+			expect(controller.state.isGrounded).toBe(true);
+
+			controller.radius = -2;
+			controller.height = -1;
+			controller.stepOffset = -0.5;
+			controller.skinWidth = -0.1;
+
+			expect(controller.radius).toBeGreaterThan(0);
+			expect(controller.height).toBeGreaterThan(0);
+			expect(controller.stepOffset).toBeGreaterThanOrEqual(0);
+			expect(controller.skinWidth).toBeGreaterThan(0);
+		});
 	});
 });

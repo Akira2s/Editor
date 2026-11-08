@@ -33,12 +33,12 @@ export class CharacterController {
 		this._node = node;
 		this._scene = scene;
 
-		this._radius = options?.radius ?? 0.5;
-		this._height = options?.height ?? 1.8;
-		this._mass = options?.mass ?? 70;
+		this._radius = Math.max(0.001, options?.radius ?? 0.5);
+		this._height = Math.max(0.001, options?.height ?? 1.8);
+		this._mass = Math.max(0.001, options?.mass ?? 70);
 		this._maxSlopeAngle = options?.maxSlopeAngle ?? Math.PI / 4;
-		this._stepOffset = options?.stepOffset ?? 0.3;
-		this._skinWidth = options?.skinWidth ?? 0.05;
+		this._stepOffset = Math.max(0, options?.stepOffset ?? 0.3);
+		this._skinWidth = Math.max(0.0001, options?.skinWidth ?? 0.05);
 		this._gravity = options?.gravity ? options.gravity.clone() : new Vector3(0, -9.81, 0);
 		this._airControl = options?.airControl ?? 0.3;
 		this._collisionFilter = options?.collisionFilter;
@@ -86,7 +86,7 @@ export class CharacterController {
 	 * Sets the capsule radius.
 	 */
 	public set radius(value: number) {
-		this._radius = value;
+		this._radius = Math.max(0.001, value);
 	}
 
 	/**
@@ -100,7 +100,7 @@ export class CharacterController {
 	 * Sets the capsule total height.
 	 */
 	public set height(value: number) {
-		this._height = value;
+		this._height = Math.max(0.001, value);
 	}
 
 	/**
@@ -114,7 +114,7 @@ export class CharacterController {
 	 * Sets the mass in kg.
 	 */
 	public set mass(value: number) {
-		this._mass = value;
+		this._mass = Math.max(0.001, value);
 	}
 
 	/**
@@ -142,7 +142,7 @@ export class CharacterController {
 	 * Sets the maximum step height for stair climbing.
 	 */
 	public set stepOffset(value: number) {
-		this._stepOffset = value;
+		this._stepOffset = Math.max(0, value);
 	}
 
 	/**
@@ -156,7 +156,7 @@ export class CharacterController {
 	 * Sets the skin width buffer.
 	 */
 	public set skinWidth(value: number) {
-		this._skinWidth = value;
+		this._skinWidth = Math.max(0.0001, value);
 	}
 
 	/**
@@ -210,6 +210,9 @@ export class CharacterController {
 		this._velocity.set(0, 0, 0);
 		this._state.velocity.set(0, 0, 0);
 		this._node.position.copyFrom(position);
+		if (typeof this._node.computeWorldMatrix === "function") {
+			this._node.computeWorldMatrix(true);
+		}
 	}
 
 	/**
@@ -218,6 +221,9 @@ export class CharacterController {
 	 * @returns True if the jump was successfully triggered, false otherwise.
 	 */
 	public jump(force: number): boolean {
+		if (!Number.isFinite(force) || force <= 0) {
+			return false;
+		}
 		if (this._state.isGrounded && !this._state.onSteepSlope) {
 			this._velocity.y = force;
 			this._state.velocity.y = force;
@@ -248,6 +254,9 @@ export class CharacterController {
 			return this._state;
 		}
 
+		if (typeof this._node.computeWorldMatrix === "function") {
+			this._node.computeWorldMatrix(true);
+		}
 		const currentPos = this._node.getAbsolutePosition();
 		const halfHeight = this._height * 0.5;
 		const capsuleCenter = new Vector3(currentPos.x, currentPos.y + halfHeight, currentPos.z);
@@ -419,7 +428,7 @@ export class CharacterController {
 			verticalDisp.y += displacement.y;
 		}
 
-		if (isGrounded && groundDistance > 0 && groundDistance <= this._stepOffset + this._skinWidth && stepUpDisplacement.y === 0) {
+		if (isGrounded && !isSliding && groundDistance > 0 && groundDistance <= this._stepOffset + this._skinWidth && stepUpDisplacement.y === 0) {
 			verticalDisp.y -= groundDistance;
 		}
 
@@ -445,6 +454,9 @@ export class CharacterController {
 		}
 
 		this._node.position.addInPlace(effectiveDisplacement);
+		if (typeof this._node.computeWorldMatrix === "function") {
+			this._node.computeWorldMatrix(true);
+		}
 
 		// Update state
 		this._state.isGrounded = isGrounded;

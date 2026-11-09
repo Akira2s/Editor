@@ -18,6 +18,9 @@ import { EditorInspectorSectionField } from "./fields/section";
 
 import { ScriptInspectorComponent } from "./script/script";
 import { CustomMetadataInspector } from "./metadata/custom-metadata";
+import { EditorTriggerVolumeInspector } from "./gameplay/trigger-volume";
+import { EditorCharacterControllerInspector } from "./gameplay/character-controller";
+import { EditorAnimationStateMachineInspector } from "./gameplay/animation-state-machine";
 
 import { onGizmoNodeChangedObservable } from "../preview/gizmo/gizmo";
 
@@ -134,6 +137,10 @@ export class EditorTransformNodeInspector extends Component<IEditorInspectorImpl
 						}
 					/>
 				</EditorInspectorSectionField>
+
+				<EditorCharacterControllerInspector object={this.props.object} />
+				<EditorTriggerVolumeInspector object={this.props.object} />
+				<EditorAnimationStateMachineInspector object={this.props.object} />
 
 				<ScriptInspectorComponent editor={this.props.editor} object={this.props.object} />
 

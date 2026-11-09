@@ -31,6 +31,7 @@ import { registerMorphTargetManagerParser } from "./morph-target-manager";
 import { registerNodeParticleSystemSetParser } from "./node-particle-system-set";
 
 import { configureLights } from "./light";
+import { configureGameplaySystems } from "./gameplay";
 
 /**
  * Defines the possible output type of a script.
@@ -223,6 +224,8 @@ export async function loadScene(rootUrl: string, sceneFilename: string, scene: S
 	if (scene.metadata?.physicsGravity) {
 		scene.getPhysicsEngine()?.setGravity(Vector3.FromArray(scene.metadata?.physicsGravity));
 	}
+
+	configureGameplaySystems(scene);
 
 	_applyScriptsForObject(scene, scene, scriptsMap, {
 		rootUrl,

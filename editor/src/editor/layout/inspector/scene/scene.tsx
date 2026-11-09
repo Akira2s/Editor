@@ -80,6 +80,7 @@ import { EditorInspectorTextureField } from "../fields/texture";
 import { ScriptInspectorComponent } from "../script/script";
 
 import { IEditorInspectorImplementationProps } from "../inspector";
+import { EditorSceneInputActionsInspector } from "./input-actions";
 import { EditorSceneAnimationGroupsInspector } from "./animation-groups";
 
 export interface IEditorSceneInspectorState {
@@ -177,6 +178,7 @@ export class EditorSceneInspector extends Component<IEditorInspectorImplementati
 
 				{/* {this.props.editor.state.enableExperimentalFeatures && this._getIblShadowsRenderingPipelineComponent()} */}
 
+				<EditorSceneInputActionsInspector scene={this.props.object} />
 				<EditorSceneAnimationGroupsInspector editor={this.props.editor} scene={this.props.object} />
 			</>
 		);

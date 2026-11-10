@@ -38,6 +38,17 @@ function patchNodeData(data: any, override: IPrefabNodeOverride): void {
 		data.metadata ??= {};
 		data.metadata.scripts = mergePrefabScripts(data.metadata.scripts, override.scripts);
 	}
+
+	for (const key of ["characterController", "triggerVolume", "animationStateMachine", "navAgent"] as const) {
+		if (override[key] !== undefined) {
+			data.metadata ??= {};
+			if (override[key] === null) {
+				delete data.metadata[key];
+			} else {
+				data.metadata[key] = JSON.parse(JSON.stringify(override[key]));
+			}
+		}
+	}
 }
 
 /**

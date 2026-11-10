@@ -2,6 +2,8 @@ import { Component, ReactNode } from "react";
 
 import { TransformNode } from "babylonjs";
 
+import { Editor } from "../../../main";
+
 import { registerUndoRedo } from "../../../../tools/undoredo";
 
 import { EditorInspectorListField } from "../fields/list";
@@ -11,6 +13,7 @@ import { EditorInspectorNumberField } from "../fields/number";
 import { EditorInspectorSectionField } from "../fields/section";
 
 export interface IEditorTriggerVolumeInspectorProps {
+	editor?: Editor;
 	object: TransformNode;
 }
 
@@ -112,18 +115,51 @@ export class EditorTriggerVolumeInspector extends Component<IEditorTriggerVolume
 								{ text: "Box", value: "box" },
 								{ text: "Sphere", value: "sphere" },
 							]}
-							onChange={() => this.forceUpdate()}
+							onChange={() => {
+								this.props.editor?.layout?.preview?.gizmo?.refreshGameplayGizmo();
+								this.forceUpdate();
+							}}
 						/>
 
 						{tv.shape === "box" && (
 							<>
-								<EditorInspectorNumberField object={this._sizeProxy} property="x" label="Size X" min={0.01} step={0.1} />
-								<EditorInspectorNumberField object={this._sizeProxy} property="y" label="Size Y" min={0.01} step={0.1} />
-								<EditorInspectorNumberField object={this._sizeProxy} property="z" label="Size Z" min={0.01} step={0.1} />
+								<EditorInspectorNumberField
+									object={this._sizeProxy}
+									property="x"
+									label="Size X"
+									min={0.01}
+									step={0.1}
+									onChange={() => this.props.editor?.layout?.preview?.gizmo?.refreshGameplayGizmo()}
+								/>
+								<EditorInspectorNumberField
+									object={this._sizeProxy}
+									property="y"
+									label="Size Y"
+									min={0.01}
+									step={0.1}
+									onChange={() => this.props.editor?.layout?.preview?.gizmo?.refreshGameplayGizmo()}
+								/>
+								<EditorInspectorNumberField
+									object={this._sizeProxy}
+									property="z"
+									label="Size Z"
+									min={0.01}
+									step={0.1}
+									onChange={() => this.props.editor?.layout?.preview?.gizmo?.refreshGameplayGizmo()}
+								/>
 							</>
 						)}
 
-						{tv.shape === "sphere" && <EditorInspectorNumberField object={tv} property="radius" label="Radius" min={0.01} step={0.1} />}
+						{tv.shape === "sphere" && (
+							<EditorInspectorNumberField
+								object={tv}
+								property="radius"
+								label="Radius"
+								min={0.01}
+								step={0.1}
+								onChange={() => this.props.editor?.layout?.preview?.gizmo?.refreshGameplayGizmo()}
+							/>
+						)}
 
 						<EditorInspectorListField
 							object={tv}
@@ -156,7 +192,10 @@ export class EditorTriggerVolumeInspector extends Component<IEditorTriggerVolume
 
 		registerUndoRedo({
 			executeRedo: true,
-			action: () => this.forceUpdate(),
+			action: () => {
+				this.props.editor?.layout?.preview?.gizmo?.refreshGameplayGizmo();
+				this.forceUpdate();
+			},
 			undo: () => {
 				const metadata = (this.props.object.metadata ??= {});
 				if (previousConfig) {
@@ -187,6 +226,7 @@ export class EditorTriggerVolumeInspector extends Component<IEditorTriggerVolume
 			},
 		});
 
+		this.props.editor?.layout?.preview?.gizmo?.refreshGameplayGizmo();
 		this.forceUpdate();
 	}
 }

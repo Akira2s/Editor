@@ -3,12 +3,16 @@ import { AnimationGroup, FreeCamera, Mesh, NullEngine, Scene, TransformNode, Vec
 
 import {
 	configureGameplaySystems,
+	configureGameplaySystemsForNodes,
+	disposeGameplaySystemsForNodes,
 	getAnimationStateMachineForNode,
 	getCharacterControllerForNode,
 	getInputManagerForScene,
+	getNavAgentForNode,
 	getTriggerVolumeForNode,
 } from "../../src/loading/gameplay";
 import { InputManager } from "../../src/input/manager";
+import { NavAgent } from "../../src/navigation/nav-agent";
 import { CharacterController } from "../../src/physics/kcc/controller";
 import { TriggerVolume } from "../../src/triggers/trigger-volume";
 import { AnimationStateMachine } from "../../src/animation/state-machine/state-machine";
@@ -30,6 +34,7 @@ describe("loading/gameplay", () => {
 		expect(getCharacterControllerForNode(node)).toBeNull();
 		expect(getTriggerVolumeForNode(node)).toBeNull();
 		expect(getAnimationStateMachineForNode(node)).toBeNull();
+		expect(getNavAgentForNode(node)).toBeNull();
 	});
 
 	test("should configure InputManager when scene.metadata.inputEnabled is true", () => {
@@ -200,6 +205,85 @@ describe("loading/gameplay", () => {
 		expect(getAnimationStateMachineForNode(characterNode)).toBeNull();
 	});
 
+	test("should configure NavAgent, start patrol when waypoints exist, and update on scene beforeRender", () => {
+		const guardNode = new TransformNode("Guard", scene);
+		guardNode.metadata = {
+			navAgent: {
+				enabled: true,
+				speed: 6,
+				acceleration: 30,
+				stoppingDistance: 0.25,
+				patrolWaypoints: [{ x: 4, y: 0, z: 0 }],
+				patrolLoop: true,
+			},
+		};
+
+		configureGameplaySystems(scene);
+
+		const agent = getNavAgentForNode(guardNode);
+		expect(agent).toBeInstanceOf(NavAgent);
+		expect((guardNode as any).navAgent).toBe(agent);
+		expect(agent?.isStopped).toBe(false);
+		expect(agent?.destination?.equals(new Vector3(4, 0, 0))).toBe(true);
+
+		scene.onBeforeRenderObservable.notifyObservers(scene);
+		expect(guardNode.position.x).toBeGreaterThan(0);
+
+		const disposeSpy = vi.spyOn(agent!, "dispose");
+		guardNode.dispose();
+		expect(disposeSpy).toHaveBeenCalledOnce();
+		expect(getNavAgentForNode(guardNode)).toBeNull();
+	});
+
+	test("should remap AnimationStateMachine animationGroupNames with namingId and support disposeGameplaySystemsForNodes", () => {
+		const namingId = "prefab123";
+		new AnimationGroup(`IdleAnim-${namingId}`, scene);
+		new AnimationGroup(`RunAnim-${namingId}`, scene);
+
+		const instanceNode = new TransformNode(`Hero-${namingId}`, scene);
+		instanceNode.metadata = {
+			characterController: { enabled: true },
+			triggerVolume: { enabled: true, name: "HeroTrigger" },
+			navAgent: { enabled: true, speed: 4 },
+			animationStateMachine: {
+				enabled: true,
+				initialState: "Move",
+				parameters: [{ name: "blend", type: "float", value: 0 }],
+				states: [
+					{
+						name: "Move",
+						animationGroupName: "IdleAnim",
+						blendTree: {
+							parameter: "blend",
+							motions: [
+								{ animationGroupName: "IdleAnim", threshold: 0 },
+								{ animationGroupName: "RunAnim", threshold: 1 },
+							],
+						},
+						transitions: [],
+					},
+				],
+			},
+		};
+
+		configureGameplaySystemsForNodes(scene, [instanceNode], namingId);
+
+		const sm = getAnimationStateMachineForNode(instanceNode);
+		expect(sm).not.toBeNull();
+		expect(sm?.currentState?.animationGroupName).toBe(`IdleAnim-${namingId}`);
+		expect(sm?.currentState?.blendTree?.motions[1].animationGroupName).toBe(`RunAnim-${namingId}`);
+		expect(getCharacterControllerForNode(instanceNode)).not.toBeNull();
+		expect(getTriggerVolumeForNode(instanceNode)).not.toBeNull();
+		expect(getNavAgentForNode(instanceNode)).not.toBeNull();
+
+		disposeGameplaySystemsForNodes([instanceNode]);
+
+		expect(getCharacterControllerForNode(instanceNode)).toBeNull();
+		expect(getTriggerVolumeForNode(instanceNode)).toBeNull();
+		expect(getAnimationStateMachineForNode(instanceNode)).toBeNull();
+		expect(getNavAgentForNode(instanceNode)).toBeNull();
+	});
+
 	test("should remove scene.onBeforeRenderObservable observers when node with AnimationStateMachine and TriggerVolume is disposed", async () => {
 		const baselineObservers = scene.onBeforeRenderObservable.observers.length;
 
@@ -302,5 +386,42 @@ describe("loading/gameplay", () => {
 		expect(getCharacterControllerForNode(node2)).toBeInstanceOf(CharacterController);
 		expect(getTriggerVolumeForNode(node2)).toBeInstanceOf(TriggerVolume);
 		expect(getAnimationStateMachineForNode(node2)).toBeInstanceOf(AnimationStateMachine);
+	});
+
+	test("adversarial: should immediately remove scene and node observers on disposeGameplaySystemsForNodes and repeated configureGameplaySystemsForNodes without rendering frames", async () => {
+		const baselineSceneObservers = scene.onBeforeRenderObservable.observers.length;
+
+		const node = new TransformNode("RepeatedNode", scene);
+		const baselineNodeDisposeObservers = node.onDisposeObservable.observers.length;
+
+		node.metadata = {
+			characterController: { enabled: true },
+			triggerVolume: { enabled: true, name: "Trigger" },
+			navAgent: { enabled: true, speed: 4 },
+			animationStateMachine: {
+				enabled: true,
+				initialState: "Idle",
+				parameters: [],
+				states: [{ name: "Idle", animationGroupName: "", speed: 1, loop: true, transitions: [] }],
+			},
+		};
+
+		for (let i = 0; i < 5; i++) {
+			configureGameplaySystemsForNodes(scene, [node]);
+		}
+
+		// Await macrotask for Babylon.js Observable._deferUnregister without triggering any render frames
+		await new Promise((resolve) => setTimeout(resolve, 0));
+
+		// TriggerVolume (1) + AnimationStateMachine (1) + NavAgent (1) = 3 scene beforeRender observers
+		expect(scene.onBeforeRenderObservable.observers.length).toBe(baselineSceneObservers + 3);
+		// CharacterController internal nodeDisposeObserver (1) + 4 gameplay cleanup observers = 5 node dispose observers
+		expect(node.onDisposeObservable.observers.length).toBe(baselineNodeDisposeObservers + 5);
+
+		disposeGameplaySystemsForNodes([node]);
+		await new Promise((resolve) => setTimeout(resolve, 0));
+
+		expect(scene.onBeforeRenderObservable.observers.length).toBe(baselineSceneObservers);
+		expect(node.onDisposeObservable.observers.length).toBe(baselineNodeDisposeObservers);
 	});
 });

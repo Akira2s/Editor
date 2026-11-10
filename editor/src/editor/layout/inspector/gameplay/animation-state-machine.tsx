@@ -1,7 +1,9 @@
 import { Component, ReactNode } from "react";
-import { AiOutlinePlus, AiOutlineDelete } from "react-icons/ai";
+import { AiOutlinePlus, AiOutlineDelete, AiOutlineNodeIndex } from "react-icons/ai";
 
 import { TransformNode } from "babylonjs";
+
+import { Editor } from "../../../main";
 
 import { Button } from "../../../../ui/shadcn/ui/button";
 
@@ -13,15 +15,25 @@ import { EditorInspectorSwitchField } from "../fields/switch";
 import { EditorInspectorNumberField } from "../fields/number";
 import { EditorInspectorSectionField } from "../fields/section";
 
+import { EditorAnimationFSMGraphDialog } from "./animation-fsm-graph";
+
 export interface IEditorAnimationStateMachineInspectorProps {
+	editor?: Editor;
 	object: TransformNode;
 }
 
-export class EditorAnimationStateMachineInspector extends Component<IEditorAnimationStateMachineInspectorProps> {
+export interface IEditorAnimationStateMachineInspectorState {
+	graphOpen: boolean;
+}
+
+export class EditorAnimationStateMachineInspector extends Component<IEditorAnimationStateMachineInspectorProps, IEditorAnimationStateMachineInspectorState> {
 	public constructor(props: IEditorAnimationStateMachineInspectorProps) {
 		super(props);
 
 		this.props.object.metadata ??= {};
+		this.state = {
+			graphOpen: false,
+		};
 	}
 
 	public render(): ReactNode {
@@ -41,6 +53,26 @@ export class EditorAnimationStateMachineInspector extends Component<IEditorAnima
 
 				{sm?.enabled && (
 					<>
+						<div className="px-2 py-1">
+							<Button
+								variant="secondary"
+								size="sm"
+								data-testid="open-fsm-graph-btn"
+								className="w-full flex items-center justify-center gap-2"
+								onClick={() => this.setState({ graphOpen: true })}
+							>
+								<AiOutlineNodeIndex className="w-4 h-4" />
+								Open State Machine Graph Editor
+							</Button>
+						</div>
+
+						<EditorAnimationFSMGraphDialog
+							open={this.state.graphOpen}
+							object={this.props.object}
+							onClose={() => this.setState({ graphOpen: false })}
+							onModified={() => this.forceUpdate()}
+						/>
+
 						<EditorInspectorStringField object={sm} property="initialState" label="Initial State" />
 
 						<div className="flex flex-col gap-2 px-2 py-1">

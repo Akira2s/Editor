@@ -64,3 +64,4 @@ export * from "./input/index";
 export * from "./physics/kcc/index";
 export * from "./animation/state-machine/index";
 export * from "./triggers/index";
+export * from "./navigation";

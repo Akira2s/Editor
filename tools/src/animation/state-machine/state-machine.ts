@@ -723,6 +723,7 @@ export class AnimationStateMachine {
 							parameter: e.parameter,
 						}))
 					: undefined,
+				...(s.position ? { position: { x: s.position.x, y: s.position.y } } : {}),
 			})),
 		};
 	}
@@ -783,6 +784,10 @@ export class AnimationStateMachine {
 								parameter: e.parameter,
 							}))
 						: undefined,
+					position:
+						state.position && Number.isFinite(Number(state.position.x)) && Number.isFinite(Number(state.position.y))
+							? { x: Number(state.position.x), y: Number(state.position.y) }
+							: undefined,
 				});
 			}
 		}

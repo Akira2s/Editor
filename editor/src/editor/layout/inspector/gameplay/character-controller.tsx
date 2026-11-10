@@ -2,6 +2,8 @@ import { Component, ReactNode } from "react";
 
 import { TransformNode } from "babylonjs";
 
+import { Editor } from "../../../main";
+
 import { registerUndoRedo } from "../../../../tools/undoredo";
 
 import { EditorInspectorSwitchField } from "../fields/switch";
@@ -9,6 +11,7 @@ import { EditorInspectorNumberField } from "../fields/number";
 import { EditorInspectorSectionField } from "../fields/section";
 
 export interface IEditorCharacterControllerInspectorProps {
+	editor?: Editor;
 	object: TransformNode;
 }
 
@@ -33,11 +36,32 @@ export class EditorCharacterControllerInspector extends Component<IEditorCharact
 
 				{cc?.enabled && (
 					<>
-						<EditorInspectorNumberField object={cc} property="radius" label="Radius" min={0.01} step={0.05} />
-						<EditorInspectorNumberField object={cc} property="height" label="Height" min={0.1} step={0.1} />
+						<EditorInspectorNumberField
+							object={cc}
+							property="radius"
+							label="Radius"
+							min={0.01}
+							step={0.05}
+							onChange={() => this.props.editor?.layout?.preview?.gizmo?.refreshGameplayGizmo()}
+						/>
+						<EditorInspectorNumberField
+							object={cc}
+							property="height"
+							label="Height"
+							min={0.1}
+							step={0.1}
+							onChange={() => this.props.editor?.layout?.preview?.gizmo?.refreshGameplayGizmo()}
+						/>
 						<EditorInspectorNumberField object={cc} property="mass" label="Mass" min={0.1} step={1} />
 						<EditorInspectorNumberField object={cc} property="maxSlopeAngle" label="Max Slope Angle" asDegrees min={0} max={Math.PI / 2} step={1} />
-						<EditorInspectorNumberField object={cc} property="stepOffset" label="Step Offset" min={0} step={0.05} />
+						<EditorInspectorNumberField
+							object={cc}
+							property="stepOffset"
+							label="Step Offset"
+							min={0}
+							step={0.05}
+							onChange={() => this.props.editor?.layout?.preview?.gizmo?.refreshGameplayGizmo()}
+						/>
 						<EditorInspectorNumberField object={cc} property="skinWidth" label="Skin Width" min={0.001} step={0.01} />
 						<EditorInspectorNumberField object={cc} property="airControl" label="Air Control" min={0} max={1} step={0.05} />
 					</>
@@ -57,7 +81,10 @@ export class EditorCharacterControllerInspector extends Component<IEditorCharact
 
 		registerUndoRedo({
 			executeRedo: true,
-			action: () => this.forceUpdate(),
+			action: () => {
+				this.props.editor?.layout?.preview?.gizmo?.refreshGameplayGizmo();
+				this.forceUpdate();
+			},
 			undo: () => {
 				const metadata = (this.props.object.metadata ??= {});
 				if (previousConfig) {
@@ -88,6 +115,7 @@ export class EditorCharacterControllerInspector extends Component<IEditorCharact
 			},
 		});
 
+		this.props.editor?.layout?.preview?.gizmo?.refreshGameplayGizmo();
 		this.forceUpdate();
 	}
 }

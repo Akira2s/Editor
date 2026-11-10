@@ -24,6 +24,10 @@ export interface IPrefabNodeOverride {
 	 * a whole.
 	 */
 	scripts?: any[];
+	characterController?: any;
+	triggerVolume?: any;
+	animationStateMachine?: any;
+	navAgent?: any;
 }
 
 export type PrefabOverrides = Record<string, IPrefabNodeOverride>;
@@ -67,6 +71,8 @@ export function mergePrefabScripts(scripts: any[] | undefined, patches: any[]): 
 	return result;
 }
 
+const gameplayComponentKeys = ["characterController", "triggerVolume", "animationStateMachine", "navAgent"] as const;
+
 /**
  * Applies the given override on the given node: the properties it defines replace the ones of the node.
  * @param node defines the node to change.
@@ -101,5 +107,16 @@ export function applyPrefabNodeOverride(node: Node, override: IPrefabNodeOverrid
 	if (override.scripts) {
 		node.metadata ??= {};
 		node.metadata.scripts = mergePrefabScripts(node.metadata.scripts, override.scripts);
+	}
+
+	for (const key of gameplayComponentKeys) {
+		if (override[key] !== undefined) {
+			node.metadata ??= {};
+			if (override[key] === null) {
+				delete node.metadata[key];
+			} else {
+				node.metadata[key] = cloneJSObject(override[key]);
+			}
+		}
 	}
 }

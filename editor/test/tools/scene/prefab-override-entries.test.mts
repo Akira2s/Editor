@@ -1,15 +1,18 @@
 import { describe, expect, test } from "vitest";
 
 import {
+	applyPrefabNodeOverride,
 	buildPrefabScriptPatches,
 	diffPrefabNode,
 	diffPrefabScripts,
+	getPrefabOverrideProperties,
 	getScriptValueEntryId,
 	IPrefabNodeOverride,
 	listPrefabOverrideEntries,
 	mergePrefabOverrideEntries,
 	mergePrefabScripts,
 	normalizePrefabNodeOverride,
+	snapshotPrefabNode,
 } from "../../../src/tools/scene/prefab-overrides";
 
 const script = (key: string, values: Record<string, any> = {}, enabled = true) => ({
@@ -161,6 +164,61 @@ describe("tools/scene/prefab-overrides entries", () => {
 		expect(reverted.scripts!.map((s) => s.key)).toEqual(["scripts/mover.ts", "scripts/health.ts"]);
 
 		const applied = mergePrefabOverrideEntries(base(), current, ["script:scripts/pickup.ts"]);
-		expect(applied.scripts!.map((s) => s.key)).toEqual(["scripts/mover.ts", "scripts/health.ts", "scripts/pickup.ts"]);
+		expect(applied.scripts!.map((s) => s.key)).toEqual(["scripts/mover.ts", "scripts/health.ts", "script:scripts/pickup.ts".replace("script:", "")]);
+	});
+
+	test("snapshots, diffs, lists, reverts, and applies gameplay component overrides", () => {
+		const mockNode: any = {
+			isEnabled: () => true,
+			setEnabled: () => {},
+			metadata: {
+				characterController: { enabled: true, radius: 0.5 },
+				triggerVolume: { enabled: true, shape: "box", size: [2, 2, 2] },
+				animationStateMachine: { enabled: true, initialState: "Idle", parameters: [], states: [] },
+				navAgent: { enabled: true, speed: 3.5 },
+			},
+		};
+
+		const prefabSnap = snapshotPrefabNode(mockNode);
+		expect(prefabSnap.characterController).toEqual({ enabled: true, radius: 0.5 });
+		expect(prefabSnap.navAgent).toEqual({ enabled: true, speed: 3.5 });
+
+		const instanceSnap = JSON.parse(JSON.stringify(prefabSnap)) as IPrefabNodeOverride;
+		instanceSnap.characterController.radius = 0.8;
+		delete instanceSnap.triggerVolume;
+		instanceSnap.navAgent.speed = 6.0;
+
+		const diff = diffPrefabNode(prefabSnap, instanceSnap)!;
+		expect(diff.characterController).toEqual({ enabled: true, radius: 0.8 });
+		expect(diff.triggerVolume).toBeNull();
+		expect(diff.animationStateMachine).toBeUndefined();
+		expect(diff.navAgent).toEqual({ enabled: true, speed: 6.0 });
+
+		expect(getPrefabOverrideProperties(diff)).toEqual(["Character Controller", "Trigger Volume", "Navigation Agent"]);
+
+		const entries = listPrefabOverrideEntries(prefabSnap, instanceSnap);
+		expect(entries).toEqual([
+			{ id: "characterController", component: "Gameplay", label: "Character Controller" },
+			{ id: "triggerVolume", component: "Gameplay", label: "Trigger Volume" },
+			{ id: "navAgent", component: "Gameplay", label: "Navigation Agent" },
+		]);
+
+		const reverted = mergePrefabOverrideEntries(instanceSnap, prefabSnap, ["characterController", "triggerVolume"]);
+		expect(reverted.characterController).toEqual({ enabled: true, radius: 0.5 });
+		expect(reverted.triggerVolume).toEqual({ enabled: true, shape: "box", size: [2, 2, 2] });
+		expect(reverted.navAgent).toEqual({ enabled: true, speed: 6.0 });
+
+		applyPrefabNodeOverride(mockNode, diff);
+		expect(mockNode.metadata.characterController.radius).toBe(0.8);
+		expect(mockNode.metadata.triggerVolume).toBeUndefined();
+		expect(mockNode.metadata.navAgent.speed).toBe(6.0);
+
+		// When a prefab baseline has no gameplay components and an instance added them, applying baseline with replaceScripts=true removes them
+		const emptyBaseline: IPrefabNodeOverride = { isEnabled: true };
+		applyPrefabNodeOverride(mockNode, emptyBaseline, true);
+		expect(mockNode.metadata.characterController).toBeUndefined();
+		expect(mockNode.metadata.triggerVolume).toBeUndefined();
+		expect(mockNode.metadata.animationStateMachine).toBeUndefined();
+		expect(mockNode.metadata.navAgent).toBeUndefined();
 	});
 });

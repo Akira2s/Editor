@@ -46,6 +46,7 @@ export interface IAnimationState {
 	loop?: boolean;
 	transitions: IAnimationTransition[];
 	events?: IAnimationEvent[];
+	position?: { x: number; y: number };
 }
 
 export interface IAnimationStateMachineData {

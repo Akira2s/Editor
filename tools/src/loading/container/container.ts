@@ -10,6 +10,7 @@ import { isSoundNode, isTransformNode } from "../../tools/guards";
 import { ScriptMap } from "../loader";
 import { configureSourceNodeFrom } from "../sound";
 import { configureTransformNodes } from "../transform-node";
+import { configureGameplaySystemsForNodes, disposeGameplaySystemsForNodes } from "../gameplay";
 import { _applyScriptsForObject, _removeRegisteredScriptInstance, getAllScriptsByClassForObject, scriptsDictionary } from "../script/apply";
 
 import { AdvancedAssetContainerInstantiatedEntries } from "./entries";
@@ -80,7 +81,10 @@ export class AdvancedAssetContainer {
 	 * This is particularely useful when you want to instantiate the container several times in the scene, but not use the original nodes of the container itself.
 	 */
 	public removeDefault(): void {
-		this.container.getNodes().forEach((node) => {
+		const nodes = this.container.getNodes();
+		disposeGameplaySystemsForNodes(nodes);
+
+		nodes.forEach((node) => {
 			const scripts = scriptsDictionary.get(node);
 			scripts?.forEach((script) => {
 				_removeRegisteredScriptInstance(node, script);
@@ -213,6 +217,8 @@ export class AdvancedAssetContainer {
 				});
 			});
 		});
+
+		configureGameplaySystemsForNodes(this.container.scene, newDescendants, namingId);
 
 		// Apply scripts after everything else is set up to avoid issues with dependencies between scripts
 		newDescendants.forEach((node) => {

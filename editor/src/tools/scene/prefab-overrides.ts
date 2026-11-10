@@ -17,6 +17,10 @@ export interface IPrefabNodeOverride {
 	 * a whole. Only what differs is stored, so that the other values keep following the prefab (@see mergePrefabScripts).
 	 */
 	scripts?: any[];
+	characterController?: any;
+	triggerVolume?: any;
+	animationStateMachine?: any;
+	navAgent?: any;
 }
 
 /**
@@ -64,6 +68,22 @@ export function snapshotPrefabNode(node: Node): IPrefabNodeOverride {
 
 	if (node.metadata?.scripts) {
 		snapshot.scripts = JSON.parse(JSON.stringify(node.metadata.scripts));
+	}
+
+	if (node.metadata?.characterController !== undefined) {
+		snapshot.characterController = JSON.parse(JSON.stringify(node.metadata.characterController));
+	}
+
+	if (node.metadata?.triggerVolume !== undefined) {
+		snapshot.triggerVolume = JSON.parse(JSON.stringify(node.metadata.triggerVolume));
+	}
+
+	if (node.metadata?.animationStateMachine !== undefined) {
+		snapshot.animationStateMachine = JSON.parse(JSON.stringify(node.metadata.animationStateMachine));
+	}
+
+	if (node.metadata?.navAgent !== undefined) {
+		snapshot.navAgent = JSON.parse(JSON.stringify(node.metadata.navAgent));
 	}
 
 	return snapshot;
@@ -114,6 +134,12 @@ export function diffPrefabNode(baseline: IPrefabNodeOverride, current: IPrefabNo
 		diff.scripts = scriptPatches;
 	}
 
+	for (const key of ["characterController", "triggerVolume", "animationStateMachine", "navAgent"] as const) {
+		if (!sameJson(baseline[key], current[key])) {
+			diff[key] = current[key] ?? null;
+		}
+	}
+
 	return Object.keys(diff).length ? diff : null;
 }
 
@@ -153,6 +179,19 @@ export function applyPrefabNodeOverride(node: Node, override: IPrefabNodeOverrid
 		node.metadata ??= {};
 		node.metadata.scripts = replaceScripts ? JSON.parse(JSON.stringify(override.scripts)) : mergePrefabScripts(node.metadata.scripts, override.scripts);
 	}
+
+	for (const key of ["characterController", "triggerVolume", "animationStateMachine", "navAgent"] as const) {
+		if (override[key] !== undefined) {
+			node.metadata ??= {};
+			if (override[key] === null) {
+				delete node.metadata[key];
+			} else {
+				node.metadata[key] = JSON.parse(JSON.stringify(override[key]));
+			}
+		} else if (replaceScripts && node.metadata) {
+			delete node.metadata[key];
+		}
+	}
 }
 
 /**
@@ -183,6 +222,22 @@ export function getPrefabOverrideProperties(override: IPrefabNodeOverride): stri
 
 	if (override.scripts) {
 		names.push("Scripts");
+	}
+
+	if (override.characterController !== undefined) {
+		names.push("Character Controller");
+	}
+
+	if (override.triggerVolume !== undefined) {
+		names.push("Trigger Volume");
+	}
+
+	if (override.animationStateMachine !== undefined) {
+		names.push("Animation State Machine");
+	}
+
+	if (override.navAgent !== undefined) {
+		names.push("Navigation Agent");
 	}
 
 	return names;
@@ -286,6 +341,22 @@ export function listPrefabOverrideEntries(baseline: IPrefabNodeOverride, current
 		entries.push(...diffPrefabScripts(baseline.scripts, current.scripts));
 	}
 
+	if (diff.characterController !== undefined) {
+		entries.push({ id: "characterController", component: "Gameplay", label: "Character Controller" });
+	}
+
+	if (diff.triggerVolume !== undefined) {
+		entries.push({ id: "triggerVolume", component: "Gameplay", label: "Trigger Volume" });
+	}
+
+	if (diff.animationStateMachine !== undefined) {
+		entries.push({ id: "animationStateMachine", component: "Gameplay", label: "Animation State Machine" });
+	}
+
+	if (diff.navAgent !== undefined) {
+		entries.push({ id: "navAgent", component: "Gameplay", label: "Navigation Agent" });
+	}
+
 	return entries;
 }
 
@@ -319,6 +390,16 @@ export function mergePrefabOverrideEntries(target: IPrefabNodeOverride, source: 
 				break;
 			case "visible":
 				merged.isVisible = from.isVisible;
+				break;
+			case "characterController":
+			case "triggerVolume":
+			case "animationStateMachine":
+			case "navAgent":
+				if (from[id] !== undefined) {
+					merged[id] = from[id];
+				} else {
+					delete merged[id];
+				}
 				break;
 			default: {
 				if (!id.startsWith(scriptPrefix)) {

@@ -26,6 +26,7 @@ import { defaultGizmoSnapPreferences, IGizmoSnapPreferences } from "../../../../
 import { updateLightShadowMapRefreshRate, updatePointLightShadowMapRenderListPredicate } from "../../../../tools/light/shadows";
 
 import { checkMagnetism, resetMagnetism } from "./magnetism";
+import { EditorGameplayGizmo } from "./gameplay-gizmo";
 
 export const onGizmoNodeChangedObservable = new Observable<Node | Sprite>();
 
@@ -42,6 +43,7 @@ export class EditorPreviewGizmo {
 	private _coordinatesMode: GizmoCoordinatesMode = GizmoCoordinatesMode.Local;
 
 	private _cameraGizmo: CameraGizmo | null = null;
+	private _gameplayGizmo: EditorGameplayGizmo;
 
 	private _attachedNode: Node | null = null;
 	private _attachedSprite: Sprite | null = null;
@@ -60,6 +62,7 @@ export class EditorPreviewGizmo {
 		this._gizmosLayer.utilityLayerScene.postProcessesEnabled = false;
 
 		this._spriteTransformNode = new TransformNode("spriteGizmoTransformNode", this._gizmosLayer.utilityLayerScene);
+		this._gameplayGizmo = new EditorGameplayGizmo(this._gizmosLayer);
 
 		window.addEventListener(
 			"keydown",
@@ -75,6 +78,7 @@ export class EditorPreviewGizmo {
 		);
 
 		scene.onDisposeObservable.addOnce(() => {
+			this._gameplayGizmo.dispose();
 			window.removeEventListener("keyup", this._keyUpListener);
 			window.removeEventListener("keydown", this._keyDownListener);
 		});
@@ -231,6 +235,15 @@ export class EditorPreviewGizmo {
 				}
 			}
 		}
+
+		this._gameplayGizmo.setAttachedNode(this._attachedNode);
+	}
+
+	/**
+	 * Refreshes the gameplay wireframe gizmo for the currently attached node.
+	 */
+	public refreshGameplayGizmo(): void {
+		this._gameplayGizmo.refresh();
 	}
 
 	public getCoordinateMode(): GizmoCoordinatesMode {

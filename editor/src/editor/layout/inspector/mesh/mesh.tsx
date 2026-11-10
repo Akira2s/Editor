@@ -43,6 +43,7 @@ import { EditorInspectorSectionField } from "../fields/section";
 
 import { ScriptInspectorComponent } from "../script/script";
 import { CustomMetadataInspector } from "../metadata/custom-metadata";
+import { EditorNavAgentInspector } from "../gameplay/nav-agent";
 import { EditorTriggerVolumeInspector } from "../gameplay/trigger-volume";
 import { EditorCharacterControllerInspector } from "../gameplay/character-controller";
 import { EditorAnimationStateMachineInspector } from "../gameplay/animation-state-machine";
@@ -207,9 +208,18 @@ export class EditorMeshInspector extends Component<IEditorInspectorImplementatio
 					</EditorInspectorSectionField>
 				)}
 
-				<EditorCharacterControllerInspector object={this.props.object} />
-				<EditorTriggerVolumeInspector object={this.props.object} />
-				<EditorAnimationStateMachineInspector object={this.props.object} />
+				<PrefabOverrideMark editor={this.props.editor} node={this.props.object} entryIds={["characterController"]}>
+					<EditorCharacterControllerInspector editor={this.props.editor} object={this.props.object} />
+				</PrefabOverrideMark>
+				<PrefabOverrideMark editor={this.props.editor} node={this.props.object} entryIds={["triggerVolume"]}>
+					<EditorTriggerVolumeInspector editor={this.props.editor} object={this.props.object} />
+				</PrefabOverrideMark>
+				<PrefabOverrideMark editor={this.props.editor} node={this.props.object} entryIds={["animationStateMachine"]}>
+					<EditorAnimationStateMachineInspector editor={this.props.editor} object={this.props.object} />
+				</PrefabOverrideMark>
+				<PrefabOverrideMark editor={this.props.editor} node={this.props.object} entryIds={["navAgent"]}>
+					<EditorNavAgentInspector editor={this.props.editor} object={this.props.object} />
+				</PrefabOverrideMark>
 
 				<ScriptInspectorComponent editor={this.props.editor} object={this.props.object} />
 

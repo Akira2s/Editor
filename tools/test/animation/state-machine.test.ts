@@ -627,6 +627,7 @@ describe("animation/state-machine", () => {
 				animationGroupName: "idle_anim",
 				speed: 1.0,
 				loop: true,
+				position: { x: 120, y: 240 },
 				transitions: [
 					{
 						targetState: "Move",
@@ -661,11 +662,13 @@ describe("animation/state-machine", () => {
 			expect(serialized.currentState).toBe("Idle");
 			expect(serialized.parameters.length).toBe(4);
 			expect(serialized.states.length).toBe(2);
+			expect(serialized.states[0].position).toEqual({ x: 120, y: 240 });
 
 			// Round-trip Parse
 			const restored = AnimationStateMachine.Parse(serialized, scene);
 			expect(restored.initialState).toBe("Idle");
 			expect(restored.currentState?.name).toBe("Idle");
+			expect(restored.currentState?.position).toEqual({ x: 120, y: 240 });
 			expect(restored.getFloat("speed")).toBe(4.2);
 			expect(restored.getInt("lives")).toBe(3);
 			expect(restored.getBool("isGrounded")).toBe(true);
@@ -675,12 +678,14 @@ describe("animation/state-machine", () => {
 			expect(restoredMove).toBeDefined();
 			expect(restoredMove?.blendTree?.motions.length).toBe(2);
 			expect(restoredMove?.speed).toBe(1.2);
+			expect(restoredMove?.position).toBeUndefined();
 
 			// Both serializations should match structurally
 			const reSerialized = restored.serialize();
 			expect(reSerialized.initialState).toBe(serialized.initialState);
 			expect(reSerialized.states.length).toBe(serialized.states.length);
 			expect(reSerialized.parameters.length).toBe(serialized.parameters.length);
+			expect(reSerialized.states[0].position).toEqual({ x: 120, y: 240 });
 		});
 	});
 
